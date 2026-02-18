@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="de" data-bs-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>🥗 Nutrition Tracker</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+body{background:#0d1117;color:#c9d1d9}
+.card{background:#161b22;border:1px solid #30363d}
+.progress{background:#21262d;height:28px;border-radius:8px}
+.meal-card{border-left:4px solid #58a6ff;margin-bottom:8px;padding:10px 14px;background:#161b22;border-radius:6px}
+.meal-card.breakfast{border-color:#f0883e}.meal-card.lunch{border-color:#3fb950}.meal-card.dinner{border-color:#bc8cff}.meal-card.snack{border-color:#58a6ff}
+.btn-del{opacity:0.5}.btn-del:hover{opacity:1}
+canvas{max-height:220px}
+.macro-label{font-size:0.85rem;opacity:0.7}
+</style>
+</head>
+<body>
+<div class="container py-4" style="max-width:900px">
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">🥗 Nutrition Tracker</h3>
+  <div><input type="date" id="dateInput" class="form-control form-control-sm" style="width:160px;display:inline-block">
+  <button class="btn btn-sm btn-primary ms-2" onclick="showAddModal()">+ Mahlzeit</button></div>
+</div>
+
+<!-- Summary -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between mb-1"><strong>Kalorien</strong><span id="calText">0 / 2000 kcal</span></div>
+  <div class="progress"><div id="calBar" class="progress-bar bg-success" style="width:0%"></div></div>
+  <div id="workoutBar" class="mt-2" style="display:none"></div>
+  <div class="row mt-3 text-center">
+    <div class="col-4"><canvas id="donutChart" height="180"></canvas></div>
+    <div class="col-8 d-flex align-items-center">
+      <div class="row w-100" id="macroStats"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Meals -->
+<div id="mealsList" class="mb-4"></div>
+
+<!-- Nährwert-Analyse -->
+<div class="card p-3 mb-3">
+  <h6>🔬 Nährwert-Analyse</h6>
+  <div id="nutriAnalysis"></div>
+</div>
+
+<!-- Week Trend -->
+<div class="card p-3 mb-3"><h6>📊 Wochentrend</h6><canvas id="weekChart" height="140"></canvas></div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="mealModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content" style="background:#161b22">
+<div class="modal-header border-secondary"><h5 class="modal-title" id="modalTitle">Mahlzeit hinzufügen</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+<form id="mealForm">
+<input type="hidden" id="mealId">
+<div class="row g-2 mb-2">
+  <div class="col-6"><select id="mType" class="form-select form-select-sm"><option value="breakfast">Frühstück</option><option value="lunch">Mittagessen</option><option value="dinner">Abendessen</option><option value="snack">Snack</option></select></div>
+  <div class="col-6"><input type="date" id="mDate" class="form-control form-control-sm"></div>
+</div>
+<input id="mDesc" class="form-control form-control-sm mb-2" placeholder="Beschreibung" required>
+<div class="row g-2 mb-2">
+  <div class="col-4"><input id="mCal" type="number" step="any" class="form-control form-control-sm" placeholder="kcal"></div>
+  <div class="col-4"><input id="mProt" type="number" step="any" class="form-control form-control-sm" placeholder="Protein (g)"></div>
+  <div class="col-4"><input id="mFat" type="number" step="any" class="form-control form-control-sm" placeholder="Fett (g)"></div>
+</div>
+<div class="row g-2 mb-2">
+  <div class="col-4"><input id="mCarbs" type="number" step="any" class="form-control form-control-sm" placeholder="KH (g)"></div>
+  <div class="col-4"><input id="mFiber" type="number" step="any" class="form-control form-control-sm" placeholder="Ballast. (g)"></div>
+  <div class="col-4"><input id="mSugar" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker (g)"></div>
+</div>
+<input id="mNotes" class="form-control form-control-sm mb-2" placeholder="Notizen">
+</form>
+</div>
+<div class="modal-footer border-secondary"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button><button class="btn btn-primary btn-sm" onclick="saveMeal()">Speichern</button></div>
+</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const API = '';
+let currentDate = new Date().toISOString().slice(0,10);
+const dateInput = document.getElementById('dateInput');
+dateInput.value = currentDate;
+dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); };
+
+const mealLabels = {breakfast:'🌅 Frühstück',lunch:'🍽️ Mittagessen',dinner:'🌙 Abendessen',snack:'🍎 Snacks'};
+const mealColors = {breakfast:'#f0883e',lunch:'#3fb950',dinner:'#bc8cff',snack:'#58a6ff'};
+
+async function loadAll() {
+  const [meals, summary, week] = await Promise.all([
+    fetch(`${API}/api/meals?date=${currentDate}`).then(r=>r.json()),
+    fetch(`${API}/api/summary/${currentDate}`).then(r=>r.json()),
+    fetch(`${API}/api/summary/week/${currentDate}`).then(r=>r.json())
+  ]);
+  renderSummary(summary);
+  renderMeals(meals);
+  renderNutriAnalysis(summary);
+  renderWeek(week);
+}
+
+function renderSummary(s) {
+  const t = s.totals, pct = Math.min(s.progress.calories, 100);
+  const w = s.workout || {};
+  const calGoal = s.goals.calories || 2000;
+  const netCal = s.net_calories ?? Math.round(t.calories);
+
+  // Kalorien-Header
+  let calLabel = `${Math.round(t.calories)} / ${calGoal} kcal`;
+  if (w.kcal_burned > 0) calLabel += ` (Netto: ${netCal} kcal)`;
+  document.getElementById('calText').textContent = calLabel;
+
+  const bar = document.getElementById('calBar');
+  bar.style.width = pct+'%';
+  bar.className = 'progress-bar ' + (pct > 100 ? 'bg-danger' : pct > 80 ? 'bg-warning' : 'bg-success');
+
+  // Workout-Info
+  const wDiv = document.getElementById('workoutBar');
+  if (w.has_workout && w.kcal_burned > 0) {
+    const zoneColors = {1:'#58a6ff',2:'#3fb950',3:'#ffc107',4:'#f0883e',5:'#f85149'};
+    const zc = zoneColors[w.zone] || '#58a6ff';
+    wDiv.style.display = '';
+    wDiv.innerHTML = `<div class="p-2 rounded d-flex flex-wrap gap-3 align-items-center" style="background:#0d1117;font-size:0.85rem">
+      <span>🏋️ <strong>${w.duration_min} min</strong></span>
+      ${w.avg_hr ? `<span>❤️ Ø ${w.avg_hr} bpm <small class="text-muted">(HRmax ${w.hr_max})</small></span>` : ''}
+      <span style="color:${zc}">⚡ Zone ${w.zone}: ${w.zone_label}</span>
+      <span>🔥 −${w.kcal_burned} kcal verbrannt</span>
+      <span style="color:#f0883e">🫙 ~${w.fat_g_burned}g Fett</span>
+      <span style="color:#3fb950">🌾 ~${w.kh_g_burned}g KH</span>
+      <span class="ms-auto text-muted">Kalorienkorrektur: +${w.kcal_burned} kcal Ziel</span>
+    </div>`;
+  } else {
+    wDiv.style.display = 'none';
+  }
+
+  document.getElementById('macroStats').innerHTML = [
+    ['Protein', t.protein_g, s.goals.protein_g, '#58a6ff'],
+    ['Fett', t.fat_g, s.goals.fat_g, '#f0883e'],
+    ['Kohlenhydrate', t.carbs_g, s.goals.carbs_g, '#3fb950'],
+    ['Ballaststoffe', t.fiber_g, s.goals.fiber_g, '#bc8cff']
+  ].map(([n,v,g,c])=>`<div class="col-6 mb-2"><div class="macro-label">${n}</div><strong style="color:${c}">${Math.round(v*10)/10}g</strong> <small class="text-muted">/ ${g}g</small></div>`).join('');
+
+  const ww = s.workout || {};
+  drawDonut(t.protein_g, Math.max(0, t.fat_g-(ww.fat_g_burned||0)), Math.max(0, t.carbs_g-(ww.kh_g_burned||0)));
+}
+
+function drawDonut(p, f, c) {
+  const canvas = document.getElementById('donutChart'), ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2, H = canvas.height = canvas.offsetHeight * 2;
+  ctx.scale(2,2); const w=W/2, h=H/2, cx=w/2, cy=h/2, r=Math.min(w,h)/2-10, inner=r*0.6;
+  ctx.clearRect(0,0,w,h);
+  const total = p+f+c || 1;
+  const slices = [[p,'#58a6ff','P'],[f,'#f0883e','F'],[c,'#3fb950','KH']];
+  let angle = -Math.PI/2;
+  slices.forEach(([v, color, label]) => {
+    const sweep = (v/total)*Math.PI*2;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,angle,angle+sweep); ctx.fillStyle=color; ctx.fill();
+    angle += sweep;
+  });
+  ctx.beginPath(); ctx.arc(cx,cy,inner,0,Math.PI*2); ctx.fillStyle='#161b22'; ctx.fill();
+  ctx.fillStyle='#c9d1d9'; ctx.font='bold 11px sans-serif'; ctx.textAlign='center';
+  ctx.fillText(`${Math.round(p+f+c)}g`, cx, cy+4);
+}
+
+function renderMeals(meals) {
+  const grouped = {};
+  meals.forEach(m => { (grouped[m.meal_type] = grouped[m.meal_type]||[]).push(m); });
+  let html = '';
+  for (const type of ['breakfast','lunch','dinner','snack']) {
+    const items = grouped[type];
+    if (!items) continue;
+    html += `<h6 class="mt-3">${mealLabels[type]}</h6>`;
+    items.forEach(m => {
+      html += `<div class="meal-card ${type} d-flex justify-content-between align-items-start">
+        <div><strong>${m.description}</strong><br><small class="text-muted">${Math.round(m.calories)} kcal · ${m.protein_g}P · ${m.fat_g}F · ${m.carbs_g}KH</small>
+        ${m.notes ? '<br><small class="text-muted">'+m.notes+'</small>' : ''}</div>
+        <div class="text-nowrap"><button class="btn btn-sm btn-outline-secondary me-1" onclick="editMeal(${m.id})">✏️</button><button class="btn btn-sm btn-outline-danger btn-del" onclick="deleteMeal(${m.id})">🗑️</button></div>
+      </div>`;
+    });
+  }
+  document.getElementById('mealsList').innerHTML = html || '<p class="text-muted">Keine Mahlzeiten für diesen Tag.</p>';
+}
+
+function renderNutriAnalysis(s) {
+  const t = s.totals, g = s.goals;
+  const w = s.workout || {};
+  const kcal = t.calories;
+
+  // Netto-Werte nach Workout
+  const netFat = Math.max(0, t.fat_g - (w.fat_g_burned || 0));
+  const netKH  = Math.max(0, t.carbs_g - (w.kh_g_burned || 0));
+
+  // Empfohlene Makro-Verteilung (% der Kalorien, auf Netto-Basis)
+  const protKcal = t.protein_g * 4;
+  const fatKcal  = netFat * 9;
+  const carbKcal = netKH * 4;
+  const totalMacroKcal = protKcal + fatKcal + carbKcal || 1;
+
+  const protPct = Math.round(protKcal / totalMacroKcal * 100);
+  const fatPct  = Math.round(fatKcal  / totalMacroKcal * 100);
+  const carbPct = Math.round(carbKcal / totalMacroKcal * 100);
+
+  const netCal = s.net_calories ?? Math.round(kcal);
+  const calMin = Math.round((g.calories || 2000) * 0.8);
+  const calMax = Math.round((g.calories || 2000) * 1.1);
+
+  // Workout-Hinweis für Analyse
+  const workoutNote = w.has_workout && w.kcal_burned > 0
+    ? ` <small class="text-muted">· Netto nach Training: ${netCal} kcal</small>` : '';
+  const fatNote = w.has_workout && w.fat_g_burned > 0
+    ? `${fatPct}% Netto-Energie · ${w.fat_g_burned}g durch Training verbrannt` : `${fatPct}% der Energie`;
+  const khNote = w.has_workout && w.kh_g_burned > 0
+    ? `${carbPct}% Netto-Energie · ${w.kh_g_burned}g durch Training verbrannt` : `${carbPct}% der Energie`;
+
+  // Zielkorridore
+  const targets = [
+    { name: 'Kalorien', unit: 'kcal', val: netCal, min: calMin, max: calMax, goal: g.calories || 2000, icon: '🔥', note: workoutNote ? `Brutto: ${Math.round(kcal)} kcal${workoutNote}` : '' },
+    { name: 'Protein', unit: 'g', val: t.protein_g, min: 60, max: 120, goal: g.protein_g, icon: '💪', note: `${protPct}% der Energie` },
+    { name: 'Fett', unit: 'g', val: netFat, min: 45, max: 80, goal: g.fat_g, icon: '🫙', note: fatNote },
+    { name: 'Kohlenhydrate', unit: 'g', val: netKH, min: 180, max: 310, goal: g.carbs_g, icon: '🌾', note: khNote },
+    { name: 'Ballaststoffe', unit: 'g', val: t.fiber_g, min: 25, max: 40, goal: g.fiber_g, icon: '🥦' },
+    { name: 'Zucker', unit: 'g', val: t.sugar_g, min: 0, max: 50, goal: 50, icon: '🍬', note: 'Max. 50g/Tag empfohlen', invert: true },
+  ];
+
+  // Empfohlene Makro-Verteilung Anzeige
+  const macroDistHTML = `
+    <div class="mb-3 p-2 rounded" style="background:#0d1117">
+      <div class="d-flex justify-content-between mb-1"><small class="text-muted">Makro-Verteilung (% der Energie)</small><small class="text-muted">Empfehlung: P 15-25% · F 25-35% · KH 45-60%</small></div>
+      <div class="d-flex rounded overflow-hidden" style="height:22px">
+        <div style="width:${protPct}%;background:#58a6ff" title="Protein ${protPct}%"></div>
+        <div style="width:${fatPct}%;background:#f0883e" title="Fett ${fatPct}%"></div>
+        <div style="width:${carbPct}%;background:#3fb950" title="KH ${carbPct}%"></div>
+      </div>
+      <div class="d-flex gap-3 mt-1">
+        <small><span style="color:#58a6ff">■</span> Protein ${protPct}% ${protPct>=15&&protPct<=25?'✅':'⚠️'}</small>
+        <small><span style="color:#f0883e">■</span> Fett ${fatPct}% ${fatPct>=25&&fatPct<=35?'✅':'⚠️'}</small>
+        <small><span style="color:#3fb950">■</span> KH ${carbPct}% ${carbPct>=45&&carbPct<=60?'✅':'⚠️'}</small>
+      </div>
+    </div>`;
+
+  const rows = targets.map(({name, unit, val, min, max, goal, icon, note, invert}) => {
+    const pct = Math.min(Math.round(val / goal * 100), 150);
+    let status, color, badge;
+    if (invert) {
+      status = val <= max ? '✅' : val <= max*1.2 ? '⚠️' : '🔴';
+      color = val <= max ? '#3fb950' : val <= max*1.2 ? '#ffc107' : '#f85149';
+      badge = val <= max ? 'OK' : 'Zu hoch';
+    } else {
+      const ok = val >= min && val <= max;
+      const low = val < min;
+      status = ok ? '✅' : low ? '🔵' : '⚠️';
+      color = ok ? '#3fb950' : low ? '#58a6ff' : '#ffc107';
+      badge = ok ? 'Optimal' : low ? 'Zu niedrig' : 'Zu hoch';
+    }
+    const barPct = Math.min(pct, 100);
+    return `
+      <div class="mb-2">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span>${icon} <strong>${name}</strong>${note ? ' <small class="text-muted">· '+note+'</small>' : ''}</span>
+          <span>${status} <strong style="color:${color}">${Math.round(val*10)/10}${unit}</strong> <small class="text-muted">/ Ziel ${goal}${unit}</small> <span class="badge ms-1" style="background:${color};color:#000;font-size:0.7rem">${badge}</span></span>
+        </div>
+        <div class="progress" style="height:8px;background:#21262d">
+          <div class="progress-bar" style="width:${barPct}%;background:${color}"></div>
+        </div>
+        <div class="d-flex justify-content-between mt-1"><small class="text-muted">Min ${min}${unit}</small><small class="text-muted">Max ${max}${unit}</small></div>
+      </div>`;
+  }).join('');
+
+  // Zuckerwarnung
+  const sugarWarn = t.sugar_g > 50 ? `<div class="alert alert-warning py-2 mt-2" style="font-size:0.85rem">⚠️ <strong>Zucker:</strong> ${Math.round(t.sugar_g)}g heute — deutlich über dem Tagesziel von 50g. Großteils aus Granatapfelsaft und Früchten (natürlicher Zucker).</div>` : '';
+
+  document.getElementById('nutriAnalysis').innerHTML = macroDistHTML + rows + sugarWarn;
+}
+
+function renderWeek(w) {
+  const canvas = document.getElementById('weekChart'), ctx = canvas.getContext('2d');
+  const W = canvas.width = canvas.offsetWidth * 2, H = canvas.height = canvas.offsetHeight * 2;
+  ctx.scale(2,2); const cw=W/2, ch=H/2;
+  ctx.clearRect(0,0,cw,ch);
+  const max = Math.max(2000, ...w.days.map(d=>d.calories)) * 1.1;
+  const barW = (cw-60)/7, pad = 8;
+  w.days.forEach((d,i) => {
+    const x = 40 + i*barW, h2 = (d.calories/max)*(ch-40);
+    const color = d.calories > 2000 ? '#f85149' : '#3fb950';
+    ctx.fillStyle = color; ctx.fillRect(x+pad, ch-25-h2, barW-pad*2, h2);
+    ctx.fillStyle = '#8b949e'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(d.date.slice(5), x+barW/2, ch-8);
+    if (d.calories > 0) { ctx.fillStyle='#c9d1d9'; ctx.fillText(Math.round(d.calories), x+barW/2, ch-30-h2); }
+  });
+  // goal line
+  const goalY = ch - 25 - (2000/max)*(ch-40);
+  ctx.strokeStyle = '#f0883e'; ctx.setLineDash([4,4]); ctx.beginPath(); ctx.moveTo(40,goalY); ctx.lineTo(cw-20,goalY); ctx.stroke();
+  ctx.setLineDash([]); ctx.fillStyle='#f0883e'; ctx.font='9px sans-serif'; ctx.textAlign='left'; ctx.fillText('2000', 2, goalY+3);
+}
+
+let allMeals = [];
+function showAddModal() {
+  document.getElementById('mealId').value = '';
+  document.getElementById('mDate').value = currentDate;
+  document.getElementById('mealForm').reset();
+  document.getElementById('mDate').value = currentDate;
+  document.getElementById('modalTitle').textContent = 'Mahlzeit hinzufügen';
+  new bootstrap.Modal(document.getElementById('mealModal')).show();
+}
+
+async function editMeal(id) {
+  const meal = await fetch(`${API}/api/meals?date=${currentDate}`).then(r=>r.json()).then(ms=>ms.find(m=>m.id===id));
+  if (!meal) return;
+  document.getElementById('mealId').value = id;
+  document.getElementById('mType').value = meal.meal_type;
+  document.getElementById('mDate').value = meal.date;
+  document.getElementById('mDesc').value = meal.description;
+  document.getElementById('mCal').value = meal.calories;
+  document.getElementById('mProt').value = meal.protein_g;
+  document.getElementById('mFat').value = meal.fat_g;
+  document.getElementById('mCarbs').value = meal.carbs_g;
+  document.getElementById('mFiber').value = meal.fiber_g;
+  document.getElementById('mSugar').value = meal.sugar_g;
+  document.getElementById('mNotes').value = meal.notes;
+  document.getElementById('modalTitle').textContent = 'Mahlzeit bearbeiten';
+  new bootstrap.Modal(document.getElementById('mealModal')).show();
+}
+
+async function saveMeal() {
+  const id = document.getElementById('mealId').value;
+  const data = {
+    date: document.getElementById('mDate').value,
+    meal_type: document.getElementById('mType').value,
+    description: document.getElementById('mDesc').value,
+    calories: parseFloat(document.getElementById('mCal').value)||0,
+    protein_g: parseFloat(document.getElementById('mProt').value)||0,
+    fat_g: parseFloat(document.getElementById('mFat').value)||0,
+    carbs_g: parseFloat(document.getElementById('mCarbs').value)||0,
+    fiber_g: parseFloat(document.getElementById('mFiber').value)||0,
+    sugar_g: parseFloat(document.getElementById('mSugar').value)||0,
+    notes: document.getElementById('mNotes').value,
+    source: 'manual'
+  };
+  const url = id ? `${API}/api/meals/${id}` : `${API}/api/meals`;
+  await fetch(url, {method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  bootstrap.Modal.getInstance(document.getElementById('mealModal')).hide();
+  loadAll();
+}
+
+async function deleteMeal(id) {
+  if (!confirm('Mahlzeit löschen?')) return;
+  await fetch(`${API}/api/meals/${id}`, {method:'DELETE'});
+  loadAll();
+}
+
+loadAll();
+</script>
+</body>
+</html>
