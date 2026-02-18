@@ -71,6 +71,12 @@ canvas{max-height:220px}
   <div class="col-4"><input id="mSugar" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker (g)"></div>
 </div>
 <input id="mNotes" class="form-control form-control-sm mb-2" placeholder="Notizen">
+<div id="componentsSection">
+  <hr class="border-secondary my-2">
+  <small class="text-muted">Zutaten / Komponenten</small>
+  <div id="compList"></div>
+  <a href="#" class="text-decoration-none" style="font-size:0.85rem" onclick="addCompRow();return false">+ Zutat hinzufügen</a>
+</div>
 </form>
 </div>
 <div class="modal-footer border-secondary"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Abbrechen</button><button class="btn btn-primary btn-sm" onclick="saveMeal()">Speichern</button></div>
@@ -198,12 +204,17 @@ function renderMeals(meals) {
       <div id="${accId}" style="display:none;border-top:1px solid rgba(255,255,255,0.08)">`;
 
     items.forEach(m => {
+      const hasComps = m.components && m.components.length > 0;
+      const compId = `comp-${m.id}`;
       html += `
         <div class="d-flex justify-content-between align-items-start px-3 py-2" style="border-bottom:1px solid rgba(255,255,255,0.04)">
-          <div>
-            <span>${m.description}</span>
+          <div style="flex:1">
+            <span>${hasComps ? `<span style="cursor:pointer;font-size:0.8rem;margin-right:4px" onclick="toggleAcc('${compId}')" id="${compId}-icon">▶</span>` : ''}${m.description}</span>
             <br><small class="text-muted">${Math.round(m.calories)} kcal · ${m.protein_g}P · ${m.fat_g}F · ${m.carbs_g}KH${m.fiber_g>0?' · '+m.fiber_g+'Bal':''}</small>
             ${m.notes ? '<br><small class="text-muted fst-italic">'+m.notes+'</small>' : ''}
+            ${hasComps ? `<div id="${compId}" style="display:none;margin-top:6px;padding-left:18px;border-left:2px solid rgba(255,255,255,0.1)">
+              ${m.components.map(c => `<div style="font-size:0.82rem;padding:2px 0"><span style="color:#8b949e">↳</span> ${c.description} <small class="text-muted">${Math.round(c.calories)} kcal · ${c.protein_g}P · ${c.fat_g}F · ${c.carbs_g}KH</small></div>`).join('')}
+            </div>` : ''}
           </div>
           <div class="text-nowrap ms-2">
             <button class="btn btn-sm btn-outline-secondary me-1 py-0" onclick="editMeal(${m.id})">✏️</button>
@@ -235,6 +246,7 @@ function addForType(type) {
   document.getElementById('mealForm').reset();
   document.getElementById('mDate').value = currentDate;
   document.getElementById('mType').value = type;
+  document.getElementById('compList').innerHTML = '';
   document.getElementById('modalTitle').textContent = 'Eintrag hinzufügen';
   new bootstrap.Modal(document.getElementById('mealModal')).show();
 }
@@ -351,12 +363,40 @@ function renderWeek(w) {
   ctx.setLineDash([]); ctx.fillStyle='#f0883e'; ctx.font='9px sans-serif'; ctx.textAlign='left'; ctx.fillText('2000', 2, goalY+3);
 }
 
+let editComponents = [];
+
+function addCompRow(comp) {
+  const list = document.getElementById('compList');
+  const idx = list.children.length;
+  const div = document.createElement('div');
+  div.className = 'row g-1 mb-1 align-items-center';
+  div.innerHTML = `
+    <div class="col-4"><input class="form-control form-control-sm comp-desc" placeholder="Zutat" value="${comp?.description||''}"></div>
+    <div class="col-2"><input type="number" step="any" class="form-control form-control-sm comp-cal" placeholder="kcal" value="${comp?.calories||''}"></div>
+    <div class="col-1"><input type="number" step="any" class="form-control form-control-sm comp-prot" placeholder="P" value="${comp?.protein_g||''}"></div>
+    <div class="col-1"><input type="number" step="any" class="form-control form-control-sm comp-fat" placeholder="F" value="${comp?.fat_g||''}"></div>
+    <div class="col-1"><input type="number" step="any" class="form-control form-control-sm comp-carbs" placeholder="KH" value="${comp?.carbs_g||''}"></div>
+    <div class="col-1"><button class="btn btn-sm btn-outline-danger py-0" onclick="this.closest('.row').remove()">×</button></div>`;
+  list.appendChild(div);
+}
+
+function getCompRows() {
+  return [...document.querySelectorAll('#compList .row')].map(row => ({
+    description: row.querySelector('.comp-desc').value,
+    calories: parseFloat(row.querySelector('.comp-cal').value)||0,
+    protein_g: parseFloat(row.querySelector('.comp-prot').value)||0,
+    fat_g: parseFloat(row.querySelector('.comp-fat').value)||0,
+    carbs_g: parseFloat(row.querySelector('.comp-carbs').value)||0,
+  })).filter(c => c.description.trim());
+}
+
 let allMeals = [];
 function showAddModal() {
   document.getElementById('mealId').value = '';
   document.getElementById('mDate').value = currentDate;
   document.getElementById('mealForm').reset();
   document.getElementById('mDate').value = currentDate;
+  document.getElementById('compList').innerHTML = '';
   document.getElementById('modalTitle').textContent = 'Mahlzeit hinzufügen';
   new bootstrap.Modal(document.getElementById('mealModal')).show();
 }
@@ -375,6 +415,11 @@ async function editMeal(id) {
   document.getElementById('mFiber').value = meal.fiber_g;
   document.getElementById('mSugar').value = meal.sugar_g;
   document.getElementById('mNotes').value = meal.notes;
+  // Load components
+  document.getElementById('compList').innerHTML = '';
+  if (meal.components && meal.components.length > 0) {
+    meal.components.forEach(c => addCompRow(c));
+  }
   document.getElementById('modalTitle').textContent = 'Mahlzeit bearbeiten';
   new bootstrap.Modal(document.getElementById('mealModal')).show();
 }
@@ -395,7 +440,20 @@ async function saveMeal() {
     source: 'manual'
   };
   const url = id ? `${API}/api/meals/${id}` : `${API}/api/meals`;
-  await fetch(url, {method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  const resp = await fetch(url, {method: id?'PUT':'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  const saved = await resp.json();
+  const mealId = id || saved.id;
+  // Save components: delete existing, re-add
+  const comps = getCompRows();
+  if (mealId) {
+    // Delete old components
+    const oldComps = await fetch(`${API}/api/meals/${mealId}/components`).then(r=>r.json());
+    for (const c of oldComps) await fetch(`${API}/api/meals/${mealId}/components/${c.id}`, {method:'DELETE'});
+    // Add new
+    for (let i=0; i<comps.length; i++) {
+      await fetch(`${API}/api/meals/${mealId}/components`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({...comps[i], sort_order:i})});
+    }
+  }
   bootstrap.Modal.getInstance(document.getElementById('mealModal')).hide();
   loadAll();
 }

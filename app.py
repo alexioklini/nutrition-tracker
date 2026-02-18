@@ -15,6 +15,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'nutrition.db
 def get_db():
     if 'db' not in g:
         g.db = sqlite3.connect(DB_PATH)
+        g.db.execute('PRAGMA foreign_keys = ON')
         g.db.row_factory = sqlite3.Row
     return g.db
 
@@ -25,6 +26,7 @@ def close_db(exc):
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
+    db.execute('PRAGMA foreign_keys = ON')
     db.execute('''CREATE TABLE IF NOT EXISTS meals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
@@ -39,6 +41,18 @@ def init_db():
         notes TEXT DEFAULT '',
         source TEXT DEFAULT 'manual' CHECK(source IN ('text','photo','manual')),
         created_at TEXT DEFAULT (datetime('now'))
+    )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS meal_components (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meal_id INTEGER NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
+        description TEXT NOT NULL,
+        calories REAL DEFAULT 0,
+        protein_g REAL DEFAULT 0,
+        fat_g REAL DEFAULT 0,
+        carbs_g REAL DEFAULT 0,
+        fiber_g REAL DEFAULT 0,
+        sugar_g REAL DEFAULT 0,
+        sort_order INTEGER DEFAULT 0
     )''')
     # Insert initial data if empty
     if db.execute('SELECT COUNT(*) FROM meals').fetchone()[0] == 0:
@@ -55,11 +69,57 @@ def init_db():
         ]
         db.executemany('INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)', meals)
         db.commit()
+    # Migration: combine breakfast components for 2026-02-17 and 2026-02-18
+    migrate_breakfast_components(db)
     db.close()
+
+def migrate_breakfast_components(db):
+    """Combine individual breakfast items into one 'Frühstücksmüsli' with components."""
+    db.row_factory = sqlite3.Row
+    component_descs = ['125g Himbeeren', '100g Vollkorn-Müsli', '30g Erdbeer-Crunchy-Müsli', 'Sojamilch ohne Zucker (~200ml)']
+    for date in ['2026-02-17', '2026-02-18']:
+        # Check if already migrated
+        existing = db.execute("SELECT id FROM meals WHERE date=? AND description='Frühstücksmüsli'", (date,)).fetchone()
+        if existing:
+            continue
+        # Find the 4 component meals
+        placeholders = ','.join('?' * len(component_descs))
+        rows = db.execute(f"SELECT * FROM meals WHERE date=? AND meal_type='breakfast' AND description IN ({placeholders})",
+                          [date] + component_descs).fetchall()
+        if len(rows) < 1:
+            continue
+        # Sum up
+        totals = {k: sum(r[k] for r in rows) for k in ['calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'sugar_g']}
+        # Create combined meal
+        cur = db.execute("INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                         (date, 'breakfast', 'Frühstücksmüsli', totals['calories'], totals['protein_g'], totals['fat_g'], totals['carbs_g'], totals['fiber_g'], totals['sugar_g'], '', 'manual'))
+        meal_id = cur.lastrowid
+        # Insert components
+        for i, r in enumerate(rows):
+            db.execute("INSERT INTO meal_components (meal_id,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,sort_order) VALUES (?,?,?,?,?,?,?,?,?)",
+                       (meal_id, r['description'], r['calories'], r['protein_g'], r['fat_g'], r['carbs_g'], r['fiber_g'], r['sugar_g'], i))
+        # Delete originals
+        ids = [r['id'] for r in rows]
+        db.execute(f"DELETE FROM meals WHERE id IN ({','.join('?'*len(ids))})", ids)
+        db.commit()
 
 @app.route('/')
 def dashboard():
     return send_from_directory('static', 'index.html')
+
+def attach_components(db, meals):
+    """Attach components array to each meal dict."""
+    if not meals:
+        return meals
+    ids = [m['id'] for m in meals]
+    placeholders = ','.join('?' * len(ids))
+    comps = db.execute(f'SELECT * FROM meal_components WHERE meal_id IN ({placeholders}) ORDER BY sort_order, id', ids).fetchall()
+    comp_map = {}
+    for c in comps:
+        comp_map.setdefault(c['meal_id'], []).append(dict(c))
+    for m in meals:
+        m['components'] = comp_map.get(m['id'], [])
+    return meals
 
 @app.route('/api/meals', methods=['GET'])
 def get_meals():
@@ -73,7 +133,9 @@ def get_meals():
         rows = db.execute('SELECT * FROM meals WHERE date BETWEEN ? AND ? ORDER BY date, meal_type, id', (date_from, date_to)).fetchall()
     else:
         rows = db.execute('SELECT * FROM meals ORDER BY date DESC, meal_type, id').fetchall()
-    return jsonify([dict(r) for r in rows])
+    meals = [dict(r) for r in rows]
+    attach_components(db, meals)
+    return jsonify(meals)
 
 @app.route('/api/meals', methods=['POST'])
 def create_meal():
@@ -105,6 +167,29 @@ def update_meal(meal_id):
 def delete_meal(meal_id):
     db = get_db()
     db.execute('DELETE FROM meals WHERE id=?', (meal_id,))
+    db.commit()
+    return jsonify({'status': 'deleted'})
+
+@app.route('/api/meals/<int:meal_id>/components', methods=['GET'])
+def get_components(meal_id):
+    db = get_db()
+    rows = db.execute('SELECT * FROM meal_components WHERE meal_id=? ORDER BY sort_order, id', (meal_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/meals/<int:meal_id>/components', methods=['POST'])
+def create_component(meal_id):
+    d = request.json
+    db = get_db()
+    cur = db.execute('INSERT INTO meal_components (meal_id,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,sort_order) VALUES (?,?,?,?,?,?,?,?,?)',
+        (meal_id, d['description'], d.get('calories',0), d.get('protein_g',0), d.get('fat_g',0), d.get('carbs_g',0), d.get('fiber_g',0), d.get('sugar_g',0), d.get('sort_order',0)))
+    db.commit()
+    row = db.execute('SELECT * FROM meal_components WHERE id=?', (cur.lastrowid,)).fetchone()
+    return jsonify(dict(row)), 201
+
+@app.route('/api/meals/<int:meal_id>/components/<int:comp_id>', methods=['DELETE'])
+def delete_component(meal_id, comp_id):
+    db = get_db()
+    db.execute('DELETE FROM meal_components WHERE id=? AND meal_id=?', (comp_id, meal_id))
     db.commit()
     return jsonify({'status': 'deleted'})
 
