@@ -121,6 +121,8 @@ def init_db():
         db.commit()
     # Migration: combine breakfast components for 2026-02-17 and 2026-02-18
     migrate_breakfast_components(db)
+    # Create food_nutrients table for prostate analysis
+    init_food_nutrients(db)
     db.close()
 
 def migrate_breakfast_components(db):
@@ -152,6 +154,45 @@ def migrate_breakfast_components(db):
         ids = [r['id'] for r in rows]
         db.execute(f"DELETE FROM meals WHERE id IN ({','.join('?'*len(ids))})", ids)
         db.commit()
+
+def init_food_nutrients(db):
+    """Create and pre-fill the food_nutrients table for prostate-relevant nutrient tracking."""
+    db.execute('''CREATE TABLE IF NOT EXISTS food_nutrients (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        food_name TEXT NOT NULL,
+        keywords TEXT NOT NULL,
+        portion_g REAL DEFAULT 100,
+        lycopin_mg REAL DEFAULT 0,
+        egcg_mg REAL DEFAULT 0,
+        omega3_epa_dha_mg REAL DEFAULT 0,
+        vitamin_d_iu REAL DEFAULT 0,
+        selen_ug REAL DEFAULT 0,
+        zink_mg REAL DEFAULT 0,
+        punicalagin_mg REAL DEFAULT 0,
+        curcumin_mg REAL DEFAULT 0,
+        boswellia_mg REAL DEFAULT 0,
+        notes TEXT DEFAULT ''
+    )''')
+    # Pre-fill if empty
+    if db.execute('SELECT COUNT(*) FROM food_nutrients').fetchone()[0] == 0:
+        foods = [
+            ('Lachs', 'lachs,salmon,lachspuffer,lachsfilet', 150, 0, 0, 3000, 750, 45, 0, 0, 0, 0, 'EPA/DHA 2g/100g'),
+            ('Makrele', 'makrele,mackerel', 150, 0, 0, 3750, 600, 60, 0, 0, 0, 0, 'EPA/DHA 2.5g/100g'),
+            ('Forelle', 'forelle,trout', 150, 0, 0, 1500, 450, 30, 0, 0, 0, 0, 'EPA/DHA 1g/100g'),
+            ('Sardinen', 'sardine,sardinen', 100, 0, 0, 2000, 400, 40, 0, 0, 0, 0, 'EPA/DHA 2g/100g'),
+            ('Tomatenmark', 'tomatenmark,tomato paste', 50, 17, 0, 0, 0, 0, 0, 0, 0, 0, '~35mg lycopin/100g'),
+            ('Tomate frisch', 'tomate,tomaten,cherry tomate', 100, 2.5, 0, 0, 0, 0, 0, 0, 0, 0, '2.5mg/100g'),
+            ('Granatapfelsaft', 'granatapfelsaft,pomegranate', 200, 1, 0, 0, 0, 0, 0, 800, 0, 0, '400mg punicalagin/100ml'),
+            ('Paranuss', 'paranuss,paranüsse,brazil nut', 10, 0, 0, 0, 0, 90, 0, 0, 0, 0, '1 Nuss ~90μg Selen'),
+            ('Walnüsse', 'walnuss,walnüsse,walnut', 30, 0, 0, 450, 0, 0, 0, 0, 0, 0, 'ALA only, ~15% conversion'),
+            ('Kürbiskerne', 'kürbiskern,pumpkin seed', 30, 0, 0, 0, 0, 0, 2.1, 0, 0, 0, 'Zink 2.1mg/30g'),
+            ('Edamame', 'edamame', 100, 0, 0, 0, 0, 0, 1.4, 0, 0, 0, 'Zink 1.4mg/100g'),
+        ]
+        db.executemany('''INSERT INTO food_nutrients
+            (food_name, keywords, portion_g, lycopin_mg, egcg_mg, omega3_epa_dha_mg, vitamin_d_iu, selen_ug, zink_mg, punicalagin_mg, curcumin_mg, boswellia_mg, notes)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''', foods)
+        db.commit()
+
 
 @app.route('/')
 def dashboard():
@@ -337,6 +378,224 @@ def get_supplement_intake_week(date):
         ''', (day,)).fetchall()
         days.append({'date': day, 'supplements': [dict(r) for r in rows]})
     return jsonify({'week_ending': date, 'days': days})
+
+# === Prostate Analysis ===
+
+# Supplement -> prostate nutrient mappings (by supplement ID and dose_slot)
+# Format: {supplement_id: {dose_slot: {nutrient: amount}}}
+SUPPLEMENT_NUTRIENTS = {
+    8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap
+        'morning': {'egcg_mg': 150},   # 2 caps morning
+        'evening': {'egcg_mg': 75},    # 1 cap evening
+    },
+    4: {  # Apremia Omega-3
+        'noon': {'omega3_epa_dha_mg': 300},
+    },
+    6: {  # Pure Encapsulations Zink 30
+        'evening': {'zink_mg': 30},
+    },
+    7: {  # Selamin Selen
+        'evening': {'selen_ug': 100},
+    },
+    3: {  # curcumin-Loges plus Boswellia
+        'morning': {'curcumin_mg': 250, 'boswellia_mg': 150, 'vitamin_d_iu': 400},
+        'evening': {'curcumin_mg': 250, 'boswellia_mg': 150, 'vitamin_d_iu': 400},
+    },
+    9: {  # Dekristolvit D3 4000 IU
+        'morning': {'vitamin_d_iu': 4000},
+    },
+    5: {  # MiraCHOL 3.0 Gold
+        'evening': {'boswellia_mg': 100},
+    },
+}
+
+PROSTATE_SUBSTANCES = [
+    {'name': 'EGCG', 'key': 'egcg_mg', 'unit': 'mg', 'min': 400, 'max': 800},
+    {'name': 'Lycopin', 'key': 'lycopin_mg', 'unit': 'mg', 'min': 10, 'max': 30},
+    {'name': 'Zink', 'key': 'zink_mg', 'unit': 'mg', 'min': 15, 'max': 30},
+    {'name': 'Selen', 'key': 'selen_ug', 'unit': 'μg', 'min': 100, 'max': 200},
+    {'name': 'Curcumin', 'key': 'curcumin_mg', 'unit': 'mg', 'min': 500, 'max': 1500},
+    {'name': 'Boswelliasäuren', 'key': 'boswellia_mg', 'unit': 'mg', 'min': 300, 'max': 500},
+    {'name': 'Omega-3 EPA/DHA', 'key': 'omega3_epa_dha_mg', 'unit': 'mg', 'min': 1000, 'max': 3000},
+    {'name': 'Vitamin D3', 'key': 'vitamin_d_iu', 'unit': 'IU', 'min': 2000, 'max': 4000},
+    {'name': 'Punicalagin', 'key': 'punicalagin_mg', 'unit': 'mg', 'min': 500, 'max': 1500},
+]
+
+import re
+
+def _extract_grams(desc):
+    """Try to extract grams from meal description. Returns grams or None."""
+    desc_lower = desc.lower()
+    # Match patterns like "150g", "~150g", "(150g)"
+    m = re.search(r'(\d+)\s*g(?:ram)?(?:\b|[)\s,])', desc_lower)
+    if m:
+        return float(m.group(1))
+    # Match ml patterns like "~200ml", "(200ml)", "200 ml"
+    m = re.search(r'(\d+)\s*ml\b', desc_lower)
+    if m:
+        return float(m.group(1))
+    # Match EL (Esslöffel): "3 EL" → 3 × 20g
+    m = re.search(r'(\d+)\s*EL\b', desc, re.IGNORECASE)
+    if m:
+        return float(m.group(1)) * 20  # 1 EL ≈ 20g
+    return None
+
+
+@app.route('/api/prostate-analysis/<date>')
+def prostate_analysis(date):
+    db = get_db()
+
+    # 1. Gather supplement contributions
+    supp_totals = {}
+    for s in PROSTATE_SUBSTANCES:
+        supp_totals[s['key']] = 0.0
+
+    supp_sources = []
+
+    # Get taken supplement doses for this date
+    intake_rows = db.execute('''
+        SELECT si.supplement_id, si.dose_slot, si.taken, s.name
+        FROM supplement_intake si
+        JOIN supplements s ON s.id = si.supplement_id
+        WHERE si.date = ? AND si.taken = 1
+    ''', (date,)).fetchall()
+
+    for row in intake_rows:
+        sid = row['supplement_id']
+        slot = row['dose_slot']
+        sname = row['name']
+        if sid in SUPPLEMENT_NUTRIENTS and slot in SUPPLEMENT_NUTRIENTS[sid]:
+            nutrients = SUPPLEMENT_NUTRIENTS[sid][slot]
+            for nutrient_key, amount in nutrients.items():
+                if nutrient_key in supp_totals:
+                    supp_totals[nutrient_key] += amount
+            # Build source label
+            slot_label = {'morning': 'morgens', 'noon': 'mittags', 'evening': 'abends'}.get(slot, slot)
+            supp_sources.append((sname, slot_label, nutrients))
+
+    # 2. Gather food contributions from meals
+    food_totals = {}
+    for s in PROSTATE_SUBSTANCES:
+        food_totals[s['key']] = 0.0
+
+    food_sources = []
+
+    # Get all food_nutrients entries
+    food_entries = db.execute('SELECT * FROM food_nutrients').fetchall()
+
+    # Get all meals for this date (including components)
+    meals = db.execute('SELECT * FROM meals WHERE date=?', (date,)).fetchall()
+    components = db.execute('''
+        SELECT mc.* FROM meal_components mc
+        JOIN meals m ON m.id = mc.meal_id
+        WHERE m.date = ?
+    ''', (date,)).fetchall()
+
+    # Collect all descriptions to match against
+    all_descs = [(m['description'], None) for m in meals]
+    all_descs += [(c['description'], None) for c in components]
+    # Also check meal notes
+    for m in meals:
+        if m['notes']:
+            all_descs.append((m['notes'], None))
+
+    # Match each description against foods, but avoid double-counting:
+    # - Each description should match at most one food
+    # - Score matches by keyword length to prefer specific matches
+    # Build all candidate matches: (desc_index, food_entry, best_keyword_len)
+    candidates = []
+    for food in food_entries:
+        keywords = [kw.strip().lower() for kw in food['keywords'].split(',')]
+        for i, (desc, _) in enumerate(all_descs):
+            desc_lower = desc.lower()
+            for kw in keywords:
+                if kw in desc_lower:
+                    candidates.append((i, food, len(kw)))
+                    break
+    # Sort by keyword length descending (most specific match wins)
+    candidates.sort(key=lambda x: -x[2])
+
+    matched_descs = set()
+    for i, food, _kw_len in candidates:
+        if i in matched_descs:
+            continue
+        matched_descs.add(i)
+        desc = all_descs[i][0]
+
+        # Extract portion
+        grams = _extract_grams(desc)
+        if grams is None:
+            grams = food['portion_g']
+
+        scale = grams / food['portion_g']
+
+        # Add nutrients
+        source_parts = []
+        for s in PROSTATE_SUBSTANCES:
+            key = s['key']
+            val = (food[key] if key in food.keys() else 0) * scale
+            if val > 0:
+                food_totals[key] += val
+                source_parts.append(f"{round(val, 1)}{s['unit']} {s['name']}")
+
+        if source_parts:
+            food_sources.append(f"{desc.strip()} ({food['food_name']})")
+
+    # 3. Build response
+    substances = []
+    for s in PROSTATE_SUBSTANCES:
+        key = s['key']
+        from_supp = round(supp_totals.get(key, 0), 1)
+        from_food = round(food_totals.get(key, 0), 1)
+        total = round(from_supp + from_food, 1)
+
+        # Build sources list
+        sources = []
+        # Supplement sources for this nutrient
+        for sname, slot_label, nutrients in supp_sources:
+            if key in nutrients:
+                sources.append(f"{sname} ({slot_label})")
+        # Food sources for this nutrient (reuse candidates with same priority)
+        src_matched = set()
+        for ci, food, _kw_len in candidates:
+            if ci in src_matched:
+                continue
+            src_matched.add(ci)
+            desc = all_descs[ci][0]
+            food_val = food[key] if key in food.keys() else 0
+            if food_val > 0:
+                grams = _extract_grams(desc)
+                if grams is None:
+                    grams = food['portion_g']
+                scaled = food_val * (grams / food['portion_g'])
+                if scaled > 0:
+                    sources.append(f"{desc.strip()} (~{round(scaled, 1)}{s['unit']})")
+
+        # Determine status
+        if total <= 0:
+            status = 'none'
+        elif total < s['min']:
+            status = 'low'
+        elif total > s['max']:
+            status = 'high'
+        else:
+            status = 'optimal'
+
+        substances.append({
+            'name': s['name'],
+            'key': key,
+            'unit': s['unit'],
+            'optimal_min': s['min'],
+            'optimal_max': s['max'],
+            'from_supplements': from_supp,
+            'from_food': from_food,
+            'total': total,
+            'sources': sources,
+            'status': status,
+        })
+
+    return jsonify({'date': date, 'substances': substances})
+
 
 BIRTH_YEAR = 1971
 HEALTH_API = 'http://localhost:5050'

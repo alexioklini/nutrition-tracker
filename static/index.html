@@ -57,30 +57,14 @@ canvas{max-height:220px}
 <div class="card p-3 mb-3">
   <h6 style="cursor:pointer" onclick="toggleAcc('prostataBody')" class="d-flex align-items-center gap-2 flex-wrap">
     <span>🔬 Prostata-Analyse <span id="prostataBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></span>
-    <span id="prostataAlerts" class="d-flex gap-1 flex-wrap">
-      <span class="badge bg-warning text-dark" style="font-size:0.7rem">⚠️ Lycopin</span>
-      <span class="badge bg-warning text-dark" style="font-size:0.7rem">⚠️ Omega-3</span>
-    </span>
+    <span id="prostataAlerts" class="d-flex gap-1 flex-wrap"></span>
   </h6>
   <div id="prostataBody" style="display:none">
     <div class="table-responsive">
       <table class="table table-sm table-dark mb-2" style="font-size:0.85rem">
         <thead><tr><th>Substanz</th><th>Quelle</th><th>Tägl. Menge</th><th>Opt. Bereich</th><th>Status</th></tr></thead>
-        <tbody>
-          <tr><td>EGCG</td><td>Grüner Tee-PS (ab heute 3 Kaps.)</td><td>225mg EGCG (×2 Bioverfügb. = ~450mg eff.)</td><td>≥400mg EGCG/Tag (klinische Studien)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Lycopin</td><td>Granatapfelsaft 200ml</td><td>~8mg</td><td>10–30mg</td><td><span class="badge bg-warning text-dark">⚠️ Zu niedrig</span></td></tr>
-          <tr><td>Zink</td><td>Zink 30 (1 Kaps.)</td><td>30mg</td><td>15–30mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Selen</td><td>Selamin (1 Tabl.)</td><td>~100μg</td><td>100–200μg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Curcumin</td><td>curcumin-Loges (2 Kaps.)</td><td>~500mg eff.</td><td>&gt;500mg (Mizellen)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Boswelliasäuren</td><td>curcumin-Loges + MiraCHOL</td><td>~300mg</td><td>300–500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Omega-3 EPA/DHA</td><td>Apremia Omega-3 (1 Kaps.)</td><td>1000mg Fischöl (≈300mg EPA/DHA)</td><td>1000–3000mg Fischöl/Tag</td><td><span class="badge bg-warning text-dark">⚠️ Untergrenze</span></td></tr>
-          <tr><td>Vitamin D3</td><td>curcumin-Loges + Dekristolvit (1 Tabl.)</td><td>4.800 IU/Tag (800 + 4.000)</td><td>2000–4000 IU/Tag (aktive Surveillance)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Beta-Sitosterol</td><td>Männerformel</td><td>130mg</td><td>60–130mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Sägepalme</td><td>Männerformel</td><td>320mg</td><td>160–320mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Pygeum africanum</td><td>Männerformel</td><td>100mg</td><td>100–200mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Kürbiskern-Extrakt</td><td>Männerformel</td><td>500mg</td><td>500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Silymarin</td><td>Legalon</td><td>280mg</td><td>200–400mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Granatapfel-Polyphenole</td><td>Granatapfelsaft 200ml täglich</td><td>~1000mg Punicalagin/Polyphenole</td><td>≥500mg/Tag (Studie: 240ml täglich)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+        <tbody id="prostataTableBody">
+          <tr><td colspan="5" class="text-muted text-center">Laden...</td></tr>
         </tbody>
       </table>
     </div>
@@ -148,7 +132,7 @@ const API = '';
 let currentDate = new Date().toISOString().slice(0,10);
 const dateInput = document.getElementById('dateInput');
 dateInput.value = currentDate;
-dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); };
+dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); loadProstataAnalysis(); };
 
 const mealLabels = {breakfast:'🌅 Frühstück',lunch:'🍽️ Mittagessen',dinner:'🌙 Abendessen',snack:'🍎 Snacks'};
 const mealColors = {breakfast:'#f0883e',lunch:'#3fb950',dinner:'#bc8cff',snack:'#58a6ff'};
@@ -517,12 +501,14 @@ async function saveMeal() {
   }
   bootstrap.Modal.getInstance(document.getElementById('mealModal')).hide();
   loadAll();
+  loadProstataAnalysis();
 }
 
 async function deleteMeal(id) {
   if (!confirm('Mahlzeit löschen?')) return;
   await fetch(`${API}/api/meals/${id}`, {method:'DELETE'});
   loadAll();
+  loadProstataAnalysis();
 }
 
 // === Supplements ===
@@ -582,10 +568,88 @@ async function toggleSupplement(suppId, doseSlot, taken) {
     body: JSON.stringify({date: currentDate, supplement_id: suppId, dose_slot: doseSlot, taken: taken ? 1 : 0})
   });
   loadSupplements();
+  loadProstataAnalysis();
+}
+
+// === Prostata-Analyse ===
+async function loadProstataAnalysis() {
+  try {
+    const data = await fetch(`${API}/api/prostate-analysis/${currentDate}`).then(r => r.json());
+    renderProstataAnalysis(data);
+  } catch (e) {
+    console.error('Prostata analysis error:', e);
+  }
+}
+
+function renderProstataAnalysis(data) {
+  const tbody = document.getElementById('prostataTableBody');
+  if (!data || !data.substances || data.substances.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">Keine Daten</td></tr>';
+    return;
+  }
+
+  let html = '';
+  data.substances.forEach(s => {
+    // Status badge
+    let badge;
+    if (s.status === 'optimal') {
+      badge = '<span class="badge bg-success">✅ Optimal</span>';
+    } else if (s.status === 'low') {
+      badge = '<span class="badge bg-warning text-dark">⚠️ Zu niedrig</span>';
+    } else if (s.status === 'high') {
+      badge = '<span class="badge bg-danger">🔴 Zu hoch</span>';
+    } else {
+      badge = '<span class="badge bg-secondary">—</span>';
+    }
+
+    // Amount display
+    const amount = s.total > 0 ? `${s.total} ${s.unit}` : '—';
+
+    // Sources
+    const sources = s.sources.length > 0 ? s.sources.join('<br>') : '<span class="text-muted">—</span>';
+
+    // Breakdown (supplements + food)
+    let breakdown = '';
+    if (s.total > 0) {
+      const parts = [];
+      if (s.from_supplements > 0) parts.push(`💊 ${s.from_supplements}${s.unit}`);
+      if (s.from_food > 0) parts.push(`🥗 ${s.from_food}${s.unit}`);
+      breakdown = parts.length > 0 ? `<br><small class="text-muted">${parts.join(' + ')}</small>` : '';
+    }
+
+    html += `<tr>
+      <td><strong>${s.name}</strong></td>
+      <td style="font-size:0.8rem">${sources}</td>
+      <td>${amount}${breakdown}</td>
+      <td>${s.optimal_min}–${s.optimal_max} ${s.unit}</td>
+      <td>${badge}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = html;
+
+  // Update collapsed header badges
+  const alerts = data.substances.filter(s => s.status !== 'optimal' && s.status !== 'none' && s.total > 0);
+  const noData = data.substances.filter(s => s.status === 'none' || s.total === 0);
+  let alertHtml = alerts.map(s => {
+    const icon = s.status === 'high' ? '🔴' : '⚠️';
+    const bg = s.status === 'high' ? 'bg-danger' : 'bg-warning text-dark';
+    return `<span class="badge ${bg}" style="font-size:0.7rem">${icon} ${s.name}</span>`;
+  }).join('');
+  // Add count of missing if any
+  if (noData.length > 0) {
+    alertHtml += `<span class="badge bg-secondary" style="font-size:0.7rem">${noData.length} nicht eingenommen</span>`;
+  }
+  // If all taken and optimal
+  if (alerts.length === 0 && noData.length === 0) {
+    alertHtml = '<span class="badge bg-success" style="font-size:0.7rem">✅ Alles optimal</span>';
+  }
+  document.getElementById('prostataAlerts').innerHTML = alertHtml;
 }
 
 loadAll();
 loadSupplements();
+loadProstataAnalysis();
 </script>
 </body>
 </html>
