@@ -407,6 +407,14 @@ SUPPLEMENT_NUTRIENTS = {
     5: {  # MiraCHOL 3.0 Gold
         'evening': {'boswellia_mg': 100},
     },
+    1: {  # Vitals Männerformel Pro Prostata (2 caps/day = morning + evening, each half)
+        'morning': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50},
+        'evening': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50},
+    },
+    2: {  # Legalon 140mg — Silymarin (hepatoprotective, especially vs EGCG toxicity)
+        'morning': {'silymarin_mg': 140},
+        'evening': {'silymarin_mg': 140},
+    },
 }
 
 PROSTATE_SUBSTANCES = [
@@ -419,6 +427,11 @@ PROSTATE_SUBSTANCES = [
     {'name': 'Omega-3 EPA/DHA', 'key': 'omega3_epa_dha_mg', 'unit': 'mg', 'min': 1000, 'max': 3000},
     {'name': 'Vitamin D3', 'key': 'vitamin_d_iu', 'unit': 'IU', 'min': 2000, 'max': 4000},
     {'name': 'Punicalagin', 'key': 'punicalagin_mg', 'unit': 'mg', 'min': 500, 'max': 1500},
+    {'name': 'Kürbiskern-Extrakt', 'key': 'kuerbiskern_mg', 'unit': 'mg', 'min': 500, 'max': 500},
+    {'name': 'Sägepalme', 'key': 'saegpalme_mg', 'unit': 'mg', 'min': 160, 'max': 320},
+    {'name': 'Beta-Sitosterol', 'key': 'beta_sitosterol_mg', 'unit': 'mg', 'min': 60, 'max': 130},
+    {'name': 'Pygeum africanum', 'key': 'pygeum_mg', 'unit': 'mg', 'min': 100, 'max': 200},
+    {'name': 'Silymarin 🛡️', 'key': 'silymarin_mg', 'unit': 'mg', 'min': 200, 'max': 400},
 ]
 
 import re
