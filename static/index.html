@@ -99,6 +99,7 @@ canvas{max-height:220px}
 <!-- Nährwert-Analyse -->
 <div class="card p-3 mb-3">
   <h6 style="cursor:pointer" onclick="toggleAcc('nutriBody')">🔬 Nährwert-Analyse <span id="nutriBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
+  <div id="macroDistDisplay"></div>
   <div id="nutriBody" style="display:none">
     <div id="nutriAnalysis"></div>
   </div>
@@ -398,7 +399,8 @@ function renderNutriAnalysis(s) {
   // Zuckerwarnung
   const sugarWarn = t.sugar_g > 50 ? `<div class="alert alert-warning py-2 mt-2" style="font-size:0.85rem">⚠️ <strong>Zucker:</strong> ${Math.round(t.sugar_g)}g heute — deutlich über dem Tagesziel von 50g. Großteils aus Granatapfelsaft und Früchten (natürlicher Zucker).</div>` : '';
 
-  document.getElementById('nutriAnalysis').innerHTML = macroDistHTML + rows + sugarWarn;
+  document.getElementById('macroDistDisplay').innerHTML = macroDistHTML;
+  document.getElementById('nutriAnalysis').innerHTML = rows + sugarWarn;
 }
 
 function renderWeek(w) {
