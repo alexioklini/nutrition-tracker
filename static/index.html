@@ -41,14 +41,16 @@ canvas{max-height:220px}
 
 <!-- Supplements -->
 <div class="card p-3 mb-3">
-  <div class="d-flex justify-content-between align-items-center mb-2">
-    <h6 class="mb-0">💊 Supplements</h6>
+  <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleAcc('suppBody')">
+    <h6 class="mb-0">💊 Supplements <span id="suppBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
     <span id="suppProgress" class="text-muted" style="font-size:0.85rem">0 / 12 Dosen heute eingenommen</span>
   </div>
-  <div class="progress mb-3" style="height:12px">
-    <div id="suppBar" class="progress-bar bg-info" style="width:0%"></div>
+  <div id="suppBody" style="display:none">
+    <div class="progress mt-2 mb-3" style="height:12px">
+      <div id="suppBar" class="progress-bar bg-info" style="width:0%"></div>
+    </div>
+    <div id="suppList"></div>
   </div>
-  <div id="suppList"></div>
 </div>
 
 <!-- Prostata-Analyse -->
