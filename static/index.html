@@ -27,6 +27,13 @@ canvas{max-height:220px}
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between mb-1"><strong>Kalorien</strong><span id="calText">0 / 2000 kcal</span></div>
   <div class="progress"><div id="calBar" class="progress-bar bg-success" style="width:0%"></div></div>
+  <div class="d-flex justify-content-between mb-1 mt-2">
+    <small>☕ Koffein/Teein</small>
+    <span id="caffeineText" style="font-size:0.85rem">0 / 400 mg</span>
+  </div>
+  <div class="progress" style="height:8px">
+    <div id="caffeineBar" class="progress-bar" style="width:0%;background:#8b6914"></div>
+  </div>
   <div id="workoutBar" class="mt-2" style="display:none"></div>
   <div class="row mt-3 text-center">
     <div class="col-4"><canvas id="donutChart" height="180"></canvas></div>
@@ -159,7 +166,7 @@ const API = '';
 let currentDate = new Date().toISOString().slice(0,10);
 const dateInput = document.getElementById('dateInput');
 dateInput.value = currentDate;
-dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); loadProstataAnalysis(); loadCardioAnalysis(); };
+dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); loadProstataAnalysis(); loadCardioAnalysis(); loadCaffeine(); };
 
 const mealLabels = {breakfast:'🌅 Frühstück',lunch:'🍽️ Mittagessen',dinner:'🌙 Abendessen',snack:'🍎 Snacks'};
 const mealColors = {breakfast:'#f0883e',lunch:'#3fb950',dinner:'#bc8cff',snack:'#58a6ff'};
@@ -530,6 +537,7 @@ async function saveMeal() {
   loadAll();
   loadProstataAnalysis();
   loadCardioAnalysis();
+  loadCaffeine();
 }
 
 async function deleteMeal(id) {
@@ -538,6 +546,7 @@ async function deleteMeal(id) {
   loadAll();
   loadProstataAnalysis();
   loadCardioAnalysis();
+  loadCaffeine();
 }
 
 // === Supplements ===
@@ -599,6 +608,7 @@ async function toggleSupplement(suppId, doseSlot, taken) {
   loadSupplements();
   loadProstataAnalysis();
   loadCardioAnalysis();
+  loadCaffeine();
 }
 
 // === Prostata-Analyse ===
@@ -749,10 +759,34 @@ function renderCardioAnalysis(data) {
   document.getElementById('cardioAlerts').innerHTML = alertHtml;
 }
 
+async function loadCaffeine() {
+  try {
+    const data = await fetch(`${API}/api/prostate-analysis/${currentDate}`).then(r => r.json());
+    const caffeine = data.substances.find(s => s.key === 'caffeine_mg');
+    if (!caffeine) return;
+    const total = caffeine.total || 0;
+    const maxVal = 400;
+    document.getElementById('caffeineText').textContent = `${Math.round(total)} / ${maxVal} mg`;
+    const bar = document.getElementById('caffeineBar');
+    const pct = Math.min(Math.round(total / maxVal * 100), 100);
+    bar.style.width = pct + '%';
+    if (total > maxVal) {
+      bar.style.background = '#f85149'; // red — over limit
+    } else if (total >= 150) {
+      bar.style.background = '#3fb950'; // green — optimal
+    } else {
+      bar.style.background = '#6c757d'; // grey — under target
+    }
+  } catch (e) {
+    console.error('Caffeine load error:', e);
+  }
+}
+
 loadAll();
 loadSupplements();
 loadProstataAnalysis();
 loadCardioAnalysis();
+loadCaffeine();
 </script>
 </body>
 </html>

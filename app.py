@@ -123,6 +123,8 @@ def init_db():
     migrate_breakfast_components(db)
     # Create food_nutrients table for prostate analysis
     init_food_nutrients(db)
+    # Migration: add caffeine_mg column to food_nutrients if missing
+    migrate_caffeine(db)
     db.close()
 
 def migrate_breakfast_components(db):
@@ -192,6 +194,34 @@ def init_food_nutrients(db):
             (food_name, keywords, portion_g, lycopin_mg, egcg_mg, omega3_epa_dha_mg, vitamin_d_iu, selen_ug, zink_mg, punicalagin_mg, curcumin_mg, boswellia_mg, notes)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''', foods)
         db.commit()
+
+
+def migrate_caffeine(db):
+    """Add caffeine_mg column to food_nutrients and insert caffeine-rich foods."""
+    cols = [row[1] for row in db.execute('PRAGMA table_info(food_nutrients)').fetchall()]
+    if 'caffeine_mg' not in cols:
+        db.execute('ALTER TABLE food_nutrients ADD COLUMN caffeine_mg REAL DEFAULT 0')
+        # Update existing coffee/tea records
+        db.execute("UPDATE food_nutrients SET caffeine_mg = 90 WHERE keywords LIKE '%kaffee%'")
+        db.execute("UPDATE food_nutrients SET caffeine_mg = 35 WHERE keywords LIKE '%grüner tee%' OR keywords LIKE '%green tea%'")
+        db.commit()
+    # Insert caffeine food records if they don't exist yet
+    caffeine_foods = [
+        ('Kaffee schwarz', 'kaffee schwarz,kaffee,coffee,kaffeeschwarz', 200, 90, '~90mg/200ml'),
+        ('Espresso', 'espresso', 30, 65, '~65mg/30ml shot'),
+        ('Kaffee mit Milch', 'kaffee mit milch,kaffee mit hafermilch,kaffee milch', 200, 85, 'etwas weniger als schwarz'),
+        ('Grüner Tee Getränk', 'grüner tee,green tea,grüntee', 200, 35, '~35mg/200ml'),
+        ('Vitals Grüner Tee-PS Kapsel', 'grüner tee-ps,tee-ps', 1, 22, '~22mg/Kapsel (geschätzt)'),
+        ('Schwarzer Tee', 'schwarzer tee,black tea', 200, 50, '~50mg/200ml'),
+    ]
+    for food_name, keywords, portion_g, caffeine_mg, notes in caffeine_foods:
+        # Check by first keyword to avoid duplicates
+        first_kw = keywords.split(',')[0].strip()
+        exists = db.execute("SELECT id FROM food_nutrients WHERE keywords LIKE ?", (f'%{first_kw}%',)).fetchone()
+        if not exists:
+            db.execute('''INSERT INTO food_nutrients (food_name, keywords, portion_g, caffeine_mg, notes)
+                VALUES (?,?,?,?,?)''', (food_name, keywords, portion_g, caffeine_mg, notes))
+    db.commit()
 
 
 @app.route('/')
@@ -384,9 +414,9 @@ def get_supplement_intake_week(date):
 # Supplement -> prostate nutrient mappings (by supplement ID and dose_slot)
 # Format: {supplement_id: {dose_slot: {nutrient: amount}}}
 SUPPLEMENT_NUTRIENTS = {
-    8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap
-        'morning': {'egcg_mg': 150},   # 2 caps morning
-        'evening': {'egcg_mg': 75},    # 1 cap evening
+    8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap, ~22mg caffeine per cap
+        'morning': {'egcg_mg': 150, 'caffeine_mg': 44},   # 2 caps morning
+        'evening': {'egcg_mg': 75, 'caffeine_mg': 22},    # 1 cap evening
     },
     4: {  # Apremia Omega-3
         'noon': {'omega3_epa_dha_mg': 300},
@@ -432,6 +462,7 @@ PROSTATE_SUBSTANCES = [
     {'name': 'Beta-Sitosterol', 'key': 'beta_sitosterol_mg', 'unit': 'mg', 'min': 60, 'max': 130},
     {'name': 'Pygeum africanum', 'key': 'pygeum_mg', 'unit': 'mg', 'min': 100, 'max': 200},
     {'name': 'Silymarin 🛡️', 'key': 'silymarin_mg', 'unit': 'mg', 'min': 200, 'max': 400},
+    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 150, 'max': 400, 'note': '3+ Tassen/Tag günstig für Prostata (Harvard-Studie). Max 400mg/Tag.'},
 ]
 
 import re
@@ -617,6 +648,7 @@ CARDIO_SUBSTANCES = [
     {'name': 'Ubiquinol (CoQ10)', 'key': 'ubiquinol_mg', 'unit': 'mg', 'min': 100, 'max': 300, 'note': 'Schützt vor CoQ10-Erschöpfung durch Monacolin K'},
     {'name': 'Omega-3 EPA/DHA', 'key': 'omega3_epa_dha_mg', 'unit': 'mg', 'min': 1000, 'max': 3000, 'note': 'Senkt Triglyzeride, HDL-fördernd'},
     {'name': 'Boswelliasäuren', 'key': 'boswellia_mg', 'unit': 'mg', 'min': 300, 'max': 500, 'note': 'Entzündungshemmend, kardiovaskulärer Schutz'},
+    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 150, 'max': 400, 'note': 'Erhöhte Aufnahme (>400mg) → Blutdruck ↑, Cortisol ↑. 150-400mg optimal.'},
 ]
 
 @app.route('/api/cardio-analysis/<date>')
