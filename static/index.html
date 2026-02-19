@@ -39,6 +39,51 @@ canvas{max-height:220px}
 <!-- Meals -->
 <div id="mealsList" class="mb-4"></div>
 
+<!-- Supplements -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">💊 Supplements</h6>
+    <span id="suppProgress" class="text-muted" style="font-size:0.85rem">0 / 8 heute eingenommen</span>
+  </div>
+  <div class="progress mb-3" style="height:12px">
+    <div id="suppBar" class="progress-bar bg-info" style="width:0%"></div>
+  </div>
+  <div id="suppList"></div>
+</div>
+
+<!-- Prostata-Analyse -->
+<div class="card p-3 mb-3">
+  <h6 style="cursor:pointer" onclick="toggleAcc('prostataBody')">
+    🔬 Prostata-Analyse <span id="prostataBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span>
+  </h6>
+  <div id="prostataBody" style="display:none">
+    <div class="table-responsive">
+      <table class="table table-sm table-dark mb-2" style="font-size:0.85rem">
+        <thead><tr><th>Substanz</th><th>Quelle</th><th>Tägl. Menge</th><th>Opt. Bereich</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>EGCG</td><td>Grüner Tee-PS (2 Kaps.)</td><td>150mg</td><td>100–400mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Lycopin</td><td>Granatapfelsaft 200ml</td><td>~8mg</td><td>10–30mg</td><td><span class="badge bg-warning text-dark">⚠️ Zu niedrig</span></td></tr>
+          <tr><td>Zink</td><td>Zink 30 (1 Kaps.)</td><td>30mg</td><td>15–30mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Selen</td><td>Selamin (1 Tabl.)</td><td>~100μg</td><td>100–200μg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Curcumin</td><td>curcumin-Loges (2 Kaps.)</td><td>~500mg eff.</td><td>&gt;500mg (Mizellen)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Boswelliasäuren</td><td>curcumin-Loges + MiraCHOL</td><td>~300mg</td><td>300–500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Omega-3 EPA/DHA</td><td>Omega-3 (1 Kaps.)</td><td>~300mg</td><td>1000–3000mg Fischöl</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Vitamin D</td><td>curcumin-Loges</td><td>Tagesdosis</td><td>1000–4000 IU</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Beta-Sitosterol</td><td>Männerformel</td><td>130mg</td><td>60–130mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Sägepalme</td><td>Männerformel</td><td>320mg</td><td>160–320mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Pygeum africanum</td><td>Männerformel</td><td>100mg</td><td>100–200mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Kürbiskern-Extrakt</td><td>Männerformel</td><td>500mg</td><td>500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Silymarin</td><td>Legalon</td><td>280mg</td><td>200–400mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Granatapfel-Polyphenole</td><td>Granatapfelsaft tägl.</td><td>hoch</td><td>tägl. empfohlen</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert alert-info py-2 mb-0" style="font-size:0.85rem">
+      💡 <strong>Lycopin-Tipp:</strong> 1–2 EL Tomatenmark täglich in Soßen liefert 10–30mg Lycopin mit höchster Bioverfügbarkeit — würde den einzigen Mangel im Stack beheben.
+    </div>
+  </div>
+</div>
+
 <!-- Nährwert-Analyse -->
 <div class="card p-3 mb-3">
   <h6>🔬 Nährwert-Analyse</h6>
@@ -88,7 +133,7 @@ const API = '';
 let currentDate = new Date().toISOString().slice(0,10);
 const dateInput = document.getElementById('dateInput');
 dateInput.value = currentDate;
-dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); };
+dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); };
 
 const mealLabels = {breakfast:'🌅 Frühstück',lunch:'🍽️ Mittagessen',dinner:'🌙 Abendessen',snack:'🍎 Snacks'};
 const mealColors = {breakfast:'#f0883e',lunch:'#3fb950',dinner:'#bc8cff',snack:'#58a6ff'};
@@ -464,7 +509,49 @@ async function deleteMeal(id) {
   loadAll();
 }
 
+// === Supplements ===
+async function loadSupplements() {
+  const data = await fetch(`${API}/api/supplement-intake/${currentDate}`).then(r => r.json());
+  const total = data.length;
+  const taken = data.filter(s => s.taken).length;
+  document.getElementById('suppProgress').textContent = `${taken} / ${total} Supplements heute eingenommen`;
+  const pct = total > 0 ? Math.round(taken / total * 100) : 0;
+  const bar = document.getElementById('suppBar');
+  bar.style.width = pct + '%';
+  bar.className = 'progress-bar ' + (pct === 100 ? 'bg-success' : 'bg-info');
+
+  const categoryIcons = {prostata:'🎯',leber:'🫁',entzündung:'🔥',herz:'❤️',antioxidans:'🍵',general:'💊'};
+  let html = '<div class="list-group list-group-flush">';
+  data.forEach(s => {
+    const catIcon = categoryIcons[s.category] || '💊';
+    const prostBadge = s.prostate_relevant ? ' <span class="badge bg-info" style="font-size:0.7rem">🎯 Prostata</span>' : '';
+    html += `
+      <div class="list-group-item d-flex align-items-center px-2 py-2" style="background:transparent;border-color:rgba(255,255,255,0.08)">
+        <div class="form-check me-2">
+          <input class="form-check-input" type="checkbox" id="supp-${s.id}" ${s.taken ? 'checked' : ''} onchange="toggleSupplement(${s.id}, this.checked)">
+        </div>
+        <div style="flex:1">
+          <strong>${s.name}</strong>${prostBadge}
+          <br><small class="text-muted">${s.dose_per_day} ${s.unit} · ${s.key_ingredients}</small>
+        </div>
+        ${s.taken_at ? `<small class="text-muted ms-2">${s.taken_at}</small>` : ''}
+      </div>`;
+  });
+  html += '</div>';
+  document.getElementById('suppList').innerHTML = html;
+}
+
+async function toggleSupplement(suppId, taken) {
+  await fetch(`${API}/api/supplement-intake`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({date: currentDate, supplement_id: suppId, taken: taken ? 1 : 0})
+  });
+  loadSupplements();
+}
+
 loadAll();
+loadSupplements();
 </script>
 </body>
 </html>

@@ -54,6 +54,39 @@ def init_db():
         sugar_g REAL DEFAULT 0,
         sort_order INTEGER DEFAULT 0
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS supplements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        dose_per_day INTEGER NOT NULL,
+        unit TEXT DEFAULT 'Kapseln',
+        key_ingredients TEXT DEFAULT '',
+        category TEXT DEFAULT 'general',
+        prostate_relevant INTEGER DEFAULT 0,
+        notes TEXT DEFAULT '',
+        active INTEGER DEFAULT 1
+    )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS supplement_intake (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        supplement_id INTEGER NOT NULL REFERENCES supplements(id),
+        taken INTEGER DEFAULT 0,
+        taken_at TEXT DEFAULT NULL,
+        UNIQUE(date, supplement_id)
+    )''')
+    # Pre-fill supplements if empty
+    if db.execute('SELECT COUNT(*) FROM supplements').fetchone()[0] == 0:
+        supps = [
+            ("Vitals Männerformel Pro Prostata", 2, "Kapseln", "Kürbiskern Go-Less® 500mg · Sägepalme 320mg · Beta-Sitosterol 130mg · Pygeum 100mg", "prostata", 1),
+            ("Legalon 140mg", 2, "Kapseln", "Silymarin 280mg/Tag (Mariendistel)", "leber", 0),
+            ("curcumin-Loges plus Boswellia", 2, "Kapseln", "Curcumin (Mizellen, 185× Bioverfügb.) · Boswelliasäuren · Vitamin D", "entzündung", 1),
+            ("Apremia Omega-3", 1, "Kapsel", "Fischöl 1000mg (EPA/DHA)", "herz", 1),
+            ("MiraCHOL 3.0 Gold", 1, "Kapsel", "Ubiquinol CoQ10 · Boswellia · Monacolin K", "herz", 0),
+            ("Pure Encapsulations Zink 30", 1, "Kapsel", "Zinkpicolinat 30mg", "prostata", 1),
+            ("Selamin Selen", 1, "Tablette", "Natriumselenit", "prostata", 1),
+            ("Vitals Grüner Tee-PS", 2, "Kapseln", "Catechine 120mg/Kapsel · EGCG 75mg/Kapsel", "antioxidans", 1),
+        ]
+        db.executemany('INSERT INTO supplements (name, dose_per_day, unit, key_ingredients, category, prostate_relevant) VALUES (?,?,?,?,?,?)', supps)
+        db.commit()
     # Insert initial data if empty
     if db.execute('SELECT COUNT(*) FROM meals').fetchone()[0] == 0:
         meals = [
@@ -192,6 +225,52 @@ def delete_component(meal_id, comp_id):
     db.execute('DELETE FROM meal_components WHERE id=? AND meal_id=?', (comp_id, meal_id))
     db.commit()
     return jsonify({'status': 'deleted'})
+
+@app.route('/api/supplements')
+def get_supplements():
+    db = get_db()
+    rows = db.execute('SELECT * FROM supplements WHERE active=1 ORDER BY id').fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/supplement-intake/<date>')
+def get_supplement_intake(date):
+    db = get_db()
+    rows = db.execute('''
+        SELECT s.*, COALESCE(si.taken, 0) as taken, si.taken_at
+        FROM supplements s
+        LEFT JOIN supplement_intake si ON si.supplement_id = s.id AND si.date = ?
+        WHERE s.active = 1
+        ORDER BY s.id
+    ''', (date,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/supplement-intake', methods=['POST'])
+def post_supplement_intake():
+    d = request.json
+    db = get_db()
+    taken_at = datetime.now().strftime('%H:%M') if d.get('taken') else None
+    db.execute('''INSERT OR REPLACE INTO supplement_intake (date, supplement_id, taken, taken_at)
+        VALUES (?, ?, ?, ?)''', (d['date'], d['supplement_id'], d.get('taken', 0), taken_at))
+    db.commit()
+    return jsonify({'status': 'ok'})
+
+@app.route('/api/supplement-intake/week/<date>')
+def get_supplement_intake_week(date):
+    db = get_db()
+    d = datetime.strptime(date, '%Y-%m-%d')
+    start = d - timedelta(days=6)
+    days = []
+    for i in range(7):
+        day = (start + timedelta(days=i)).strftime('%Y-%m-%d')
+        rows = db.execute('''
+            SELECT s.id, s.name, COALESCE(si.taken, 0) as taken
+            FROM supplements s
+            LEFT JOIN supplement_intake si ON si.supplement_id = s.id AND si.date = ?
+            WHERE s.active = 1
+            ORDER BY s.id
+        ''', (day,)).fetchall()
+        days.append({'date': day, 'supplements': [dict(r) for r in rows]})
+    return jsonify({'week_ending': date, 'days': days})
 
 BIRTH_YEAR = 1971
 HEALTH_API = 'http://localhost:5050'
