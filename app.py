@@ -462,7 +462,7 @@ PROSTATE_SUBSTANCES = [
     {'name': 'Beta-Sitosterol', 'key': 'beta_sitosterol_mg', 'unit': 'mg', 'min': 60, 'max': 130},
     {'name': 'Pygeum africanum', 'key': 'pygeum_mg', 'unit': 'mg', 'min': 100, 'max': 200},
     {'name': 'Silymarin 🛡️', 'key': 'silymarin_mg', 'unit': 'mg', 'min': 200, 'max': 400},
-    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 150, 'max': 400, 'note': '3+ Tassen/Tag günstig für Prostata (Harvard-Studie). Max 400mg/Tag.'},
+    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 300, 'max': 400, 'note': '3+ Tassen/Tag günstig für Prostata (Harvard-Studie). Max 400mg/Tag.'},
 ]
 
 import re
@@ -648,7 +648,7 @@ CARDIO_SUBSTANCES = [
     {'name': 'Ubiquinol (CoQ10)', 'key': 'ubiquinol_mg', 'unit': 'mg', 'min': 100, 'max': 300, 'note': 'Schützt vor CoQ10-Erschöpfung durch Monacolin K'},
     {'name': 'Omega-3 EPA/DHA', 'key': 'omega3_epa_dha_mg', 'unit': 'mg', 'min': 1000, 'max': 3000, 'note': 'Senkt Triglyzeride, HDL-fördernd'},
     {'name': 'Boswelliasäuren', 'key': 'boswellia_mg', 'unit': 'mg', 'min': 300, 'max': 500, 'note': 'Entzündungshemmend, kardiovaskulärer Schutz'},
-    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 150, 'max': 400, 'note': 'Erhöhte Aufnahme (>400mg) → Blutdruck ↑, Cortisol ↑. 150-400mg optimal.'},
+    {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 300, 'max': 400, 'note': 'Erhöhte Aufnahme (>400mg) → Blutdruck ↑, Cortisol ↑. 150-400mg optimal.'},
 ]
 
 @app.route('/api/cardio-analysis/<date>')

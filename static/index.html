@@ -772,8 +772,10 @@ async function loadCaffeine() {
     bar.style.width = pct + '%';
     if (total > maxVal) {
       bar.style.background = '#f85149'; // red — over limit
+    } else if (total >= 300) {
+      bar.style.background = '#3fb950'; // green — optimal (Harvard: 3+ cups)
     } else if (total >= 150) {
-      bar.style.background = '#3fb950'; // green — optimal
+      bar.style.background = '#ffc107'; // yellow — ok but below Harvard target
     } else {
       bar.style.background = '#6c757d'; // grey — under target
     }
