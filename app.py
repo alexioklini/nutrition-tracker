@@ -71,8 +71,10 @@ def init_db():
         supplement_id INTEGER NOT NULL REFERENCES supplements(id),
         taken INTEGER DEFAULT 0,
         taken_at TEXT DEFAULT NULL,
-        UNIQUE(date, supplement_id)
+        dose_slot TEXT DEFAULT 'morning'
     )''')
+    db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_supplement_intake_unique
+        ON supplement_intake(date, supplement_id, dose_slot)''')
     # Pre-fill supplements if empty
     if db.execute('SELECT COUNT(*) FROM supplements').fetchone()[0] == 0:
         supps = [
@@ -232,25 +234,76 @@ def get_supplements():
     rows = db.execute('SELECT * FROM supplements WHERE active=1 ORDER BY id').fetchall()
     return jsonify([dict(r) for r in rows])
 
+def ensure_supplement_records(db, date):
+    """Auto-insert supplement_intake records for a date if none exist."""
+    count = db.execute('SELECT COUNT(*) FROM supplement_intake WHERE date=?', (date,)).fetchone()[0]
+    if count > 0:
+        return
+    # Dose schedule:
+    # IDs 1,2,3,8 (dose_per_day=2): morning 07:00 + evening 19:00
+    # ID 4 (Omega-3, dose_per_day=1): noon 12:00
+    # IDs 5,6,7 (dose_per_day=1): evening 19:00
+    supps = db.execute('SELECT id, dose_per_day FROM supplements WHERE active=1 ORDER BY id').fetchall()
+    for s in supps:
+        sid = s[0]
+        dpd = s[1]
+        if dpd == 2:  # IDs 1,2,3,8
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
+                       (date, sid, date + ' 07:00:00', 'morning'))
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
+                       (date, sid, date + ' 19:00:00', 'evening'))
+        elif sid == 4:  # Omega-3
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
+                       (date, sid, date + ' 12:00:00', 'noon'))
+        else:  # IDs 5,6,7
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
+                       (date, sid, date + ' 19:00:00', 'evening'))
+    db.commit()
+
 @app.route('/api/supplement-intake/<date>')
 def get_supplement_intake(date):
     db = get_db()
-    rows = db.execute('''
-        SELECT s.*, COALESCE(si.taken, 0) as taken, si.taken_at
-        FROM supplements s
-        LEFT JOIN supplement_intake si ON si.supplement_id = s.id AND si.date = ?
-        WHERE s.active = 1
-        ORDER BY s.id
-    ''', (date,)).fetchall()
-    return jsonify([dict(r) for r in rows])
+    ensure_supplement_records(db, date)
+    # Fetch all intake records grouped by supplement
+    supps = db.execute('SELECT * FROM supplements WHERE active=1 ORDER BY id').fetchall()
+    result = []
+    for s in supps:
+        doses = db.execute('''
+            SELECT id, dose_slot, taken, taken_at FROM supplement_intake
+            WHERE date=? AND supplement_id=? ORDER BY
+            CASE dose_slot WHEN 'morning' THEN 1 WHEN 'noon' THEN 2 WHEN 'evening' THEN 3 END
+        ''', (date, s['id'])).fetchall()
+        result.append({
+            'supplement_id': s['id'],
+            'name': s['name'],
+            'dose_per_day': s['dose_per_day'],
+            'unit': s['unit'],
+            'key_ingredients': s['key_ingredients'],
+            'category': s['category'],
+            'prostate_relevant': s['prostate_relevant'],
+            'doses': [{'id': d['id'], 'dose_slot': d['dose_slot'], 'taken': d['taken'],
+                       'taken_at': d['taken_at'].split(' ')[-1][:5] if d['taken_at'] else None} for d in doses]
+        })
+    return jsonify(result)
 
 @app.route('/api/supplement-intake', methods=['POST'])
 def post_supplement_intake():
     d = request.json
     db = get_db()
-    taken_at = datetime.now().strftime('%H:%M') if d.get('taken') else None
-    db.execute('''INSERT OR REPLACE INTO supplement_intake (date, supplement_id, taken, taken_at)
-        VALUES (?, ?, ?, ?)''', (d['date'], d['supplement_id'], d.get('taken', 0), taken_at))
+    dose_slot = d.get('dose_slot', 'morning')
+    taken = d.get('taken', 0)
+    # Update existing record by (date, supplement_id, dose_slot)
+    existing = db.execute('SELECT id, taken_at FROM supplement_intake WHERE date=? AND supplement_id=? AND dose_slot=?',
+                          (d['date'], d['supplement_id'], dose_slot)).fetchone()
+    if existing:
+        # Keep original scheduled time if unchecking, set current time if checking
+        taken_at = datetime.now().strftime(d['date'] + ' %H:%M:%S') if taken else existing['taken_at']
+        db.execute('UPDATE supplement_intake SET taken=?, taken_at=? WHERE id=?',
+                   (taken, taken_at, existing['id']))
+    else:
+        taken_at = datetime.now().strftime(d['date'] + ' %H:%M:%S') if taken else None
+        db.execute('INSERT INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,?,?,?)',
+                   (d['date'], d['supplement_id'], taken, taken_at, dose_slot))
     db.commit()
     return jsonify({'status': 'ok'})
 
@@ -262,12 +315,13 @@ def get_supplement_intake_week(date):
     days = []
     for i in range(7):
         day = (start + timedelta(days=i)).strftime('%Y-%m-%d')
+        # Count taken doses vs total expected doses per day (12 total)
         rows = db.execute('''
-            SELECT s.id, s.name, COALESCE(si.taken, 0) as taken
+            SELECT s.id, s.name, si.dose_slot, COALESCE(si.taken, 0) as taken
             FROM supplements s
             LEFT JOIN supplement_intake si ON si.supplement_id = s.id AND si.date = ?
             WHERE s.active = 1
-            ORDER BY s.id
+            ORDER BY s.id, si.dose_slot
         ''', (day,)).fetchall()
         days.append({'date': day, 'supplements': [dict(r) for r in rows]})
     return jsonify({'week_ending': date, 'days': days})
