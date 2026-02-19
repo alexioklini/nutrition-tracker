@@ -94,8 +94,10 @@ canvas{max-height:220px}
 
 <!-- Nährwert-Analyse -->
 <div class="card p-3 mb-3">
-  <h6>🔬 Nährwert-Analyse</h6>
-  <div id="nutriAnalysis"></div>
+  <h6 style="cursor:pointer" onclick="toggleAcc('nutriBody')">🔬 Nährwert-Analyse <span id="nutriBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
+  <div id="nutriBody" style="display:none">
+    <div id="nutriAnalysis"></div>
+  </div>
 </div>
 
 <!-- Week Trend -->
