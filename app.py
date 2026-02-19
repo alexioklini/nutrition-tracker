@@ -63,7 +63,10 @@ def init_db():
         category TEXT DEFAULT 'general',
         prostate_relevant INTEGER DEFAULT 0,
         notes TEXT DEFAULT '',
-        active INTEGER DEFAULT 1
+        active INTEGER DEFAULT 1,
+        dose_morning INTEGER DEFAULT 1,
+        dose_noon INTEGER DEFAULT 1,
+        dose_evening INTEGER DEFAULT 1
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS supplement_intake (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +106,18 @@ def init_db():
             ('2026-02-18','snack','3 Äpfel (~150g each)',230,1,0.5,55,8,44,'','manual'),
         ]
         db.executemany('INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)', meals)
+        db.commit()
+    # Migration: add dose_morning/dose_noon/dose_evening columns if missing
+    cols = [row[1] for row in db.execute('PRAGMA table_info(supplements)').fetchall()]
+    if 'dose_morning' not in cols:
+        db.execute('ALTER TABLE supplements ADD COLUMN dose_morning INTEGER DEFAULT 1')
+        db.execute('ALTER TABLE supplements ADD COLUMN dose_noon INTEGER DEFAULT 1')
+        db.execute('ALTER TABLE supplements ADD COLUMN dose_evening INTEGER DEFAULT 1')
+        db.commit()
+    # Ensure Grüner Tee-PS (id=8) has correct split-dose: 3 caps/day (2 morning + 1 evening)
+    row8 = db.execute('SELECT dose_per_day, dose_morning, dose_evening FROM supplements WHERE id=8').fetchone()
+    if row8 and (row8[0] != 3 or row8[1] != 2 or row8[2] != 1):
+        db.execute('UPDATE supplements SET dose_per_day=3, dose_morning=2, dose_evening=1 WHERE id=8')
         db.commit()
     # Migration: combine breakfast components for 2026-02-17 and 2026-02-18
     migrate_breakfast_components(db)
@@ -281,6 +296,9 @@ def get_supplement_intake(date):
             'key_ingredients': s['key_ingredients'],
             'category': s['category'],
             'prostate_relevant': s['prostate_relevant'],
+            'dose_morning': s['dose_morning'] if 'dose_morning' in s.keys() else 1,
+            'dose_noon': s['dose_noon'] if 'dose_noon' in s.keys() else 1,
+            'dose_evening': s['dose_evening'] if 'dose_evening' in s.keys() else 1,
             'doses': [{'id': d['id'], 'dose_slot': d['dose_slot'], 'taken': d['taken'],
                        'taken_at': d['taken_at'].split(' ')[-1][:5] if d['taken_at'] else None} for d in doses]
         })

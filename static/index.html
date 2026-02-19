@@ -61,25 +61,31 @@ canvas{max-height:220px}
       <table class="table table-sm table-dark mb-2" style="font-size:0.85rem">
         <thead><tr><th>Substanz</th><th>Quelle</th><th>Tägl. Menge</th><th>Opt. Bereich</th><th>Status</th></tr></thead>
         <tbody>
-          <tr><td>EGCG</td><td>Grüner Tee-PS (2 Kaps.)</td><td>150mg</td><td>100–400mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>EGCG</td><td>Grüner Tee-PS (ab heute 3 Kaps.)</td><td>225mg EGCG (×2 Bioverfügb. = ~450mg eff.)</td><td>≥400mg EGCG/Tag (klinische Studien)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Lycopin</td><td>Granatapfelsaft 200ml</td><td>~8mg</td><td>10–30mg</td><td><span class="badge bg-warning text-dark">⚠️ Zu niedrig</span></td></tr>
           <tr><td>Zink</td><td>Zink 30 (1 Kaps.)</td><td>30mg</td><td>15–30mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Selen</td><td>Selamin (1 Tabl.)</td><td>~100μg</td><td>100–200μg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Curcumin</td><td>curcumin-Loges (2 Kaps.)</td><td>~500mg eff.</td><td>&gt;500mg (Mizellen)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Boswelliasäuren</td><td>curcumin-Loges + MiraCHOL</td><td>~300mg</td><td>300–500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Omega-3 EPA/DHA</td><td>Omega-3 (1 Kaps.)</td><td>~300mg</td><td>1000–3000mg Fischöl</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Vitamin D</td><td>curcumin-Loges</td><td>Tagesdosis</td><td>1000–4000 IU</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Omega-3 EPA/DHA</td><td>Apremia Omega-3 (1 Kaps.)</td><td>1000mg Fischöl (≈300mg EPA/DHA)</td><td>1000–3000mg Fischöl/Tag</td><td><span class="badge bg-warning text-dark">⚠️ Untergrenze</span></td></tr>
+          <tr><td>Vitamin D</td><td>curcumin-Loges (2 Kaps.)</td><td>→ Tagesdosis auf Packung prüfen!</td><td>2000–4000 IU/Tag (aktive Surveillance)</td><td><span class="badge bg-secondary">❓ Prüfen</span></td></tr>
           <tr><td>Beta-Sitosterol</td><td>Männerformel</td><td>130mg</td><td>60–130mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Sägepalme</td><td>Männerformel</td><td>320mg</td><td>160–320mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Pygeum africanum</td><td>Männerformel</td><td>100mg</td><td>100–200mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Kürbiskern-Extrakt</td><td>Männerformel</td><td>500mg</td><td>500mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
           <tr><td>Silymarin</td><td>Legalon</td><td>280mg</td><td>200–400mg</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
-          <tr><td>Granatapfel-Polyphenole</td><td>Granatapfelsaft tägl.</td><td>hoch</td><td>tägl. empfohlen</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
+          <tr><td>Granatapfel-Polyphenole</td><td>Granatapfelsaft 200ml täglich</td><td>~1000mg Punicalagin/Polyphenole</td><td>≥500mg/Tag (Studie: 240ml täglich)</td><td><span class="badge bg-success">✅ Optimal</span></td></tr>
         </tbody>
       </table>
     </div>
-    <div class="alert alert-info py-2 mb-0" style="font-size:0.85rem">
+    <div class="alert alert-info py-2 mb-2" style="font-size:0.85rem">
       💡 <strong>Lycopin-Tipp:</strong> 1–2 EL Tomatenmark täglich in Soßen liefert 10–30mg Lycopin mit höchster Bioverfügbarkeit — würde den einzigen Mangel im Stack beheben.
+    </div>
+    <div class="alert alert-warning py-2 mb-2" style="font-size:0.85rem">
+      ⚠️ <strong>Grüner Tee-PS:</strong> NIEMALS nüchtern (Hepatotoxizität!) — immer zu einer Mahlzeit. Ab 19.02.2026: 2 Kaps. morgens + 1 Kaps. abends.
+    </div>
+    <div class="alert alert-secondary py-2 mb-0" style="font-size:0.85rem">
+      ❓ <strong>Vitamin D:</strong> Tagesdosis auf der curcumin-Loges Packung prüfen. Für aktive Surveillance sind 2000–4000 IU/Tag empfehlenswert — ggf. separates Vitamin-D-Supplement erwägen.
     </div>
   </div>
 </div>
@@ -532,11 +538,15 @@ async function loadSupplements() {
     let dosesHtml = '';
     s.doses.forEach(d => {
       const time = slotTimes[d.dose_slot] || d.taken_at || '';
+      // Show capsule count per slot if > 1
+      const doseCountKey = 'dose_' + d.dose_slot;
+      const doseCount = s[doseCountKey] || 1;
+      const countLabel = doseCount > 1 ? ` (${doseCount} Kaps.)` : '';
       dosesHtml += `
         <div class="form-check form-check-inline me-3">
           <input class="form-check-input" type="checkbox" id="supp-${s.supplement_id}-${d.dose_slot}"
             ${d.taken ? 'checked' : ''} onchange="toggleSupplement(${s.supplement_id}, '${d.dose_slot}', this.checked)">
-          <label class="form-check-label" for="supp-${s.supplement_id}-${d.dose_slot}" style="font-size:0.85rem;cursor:pointer">${time}</label>
+          <label class="form-check-label" for="supp-${s.supplement_id}-${d.dose_slot}" style="font-size:0.85rem;cursor:pointer">${time}${countLabel}</label>
         </div>`;
     });
 
