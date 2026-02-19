@@ -254,23 +254,17 @@ def ensure_supplement_records(db, date):
     count = db.execute('SELECT COUNT(*) FROM supplement_intake WHERE date=?', (date,)).fetchone()[0]
     if count > 0:
         return
-    # Dose schedule:
-    # IDs 1,2,3,8 (dose_per_day=2): morning 07:00 + evening 19:00
-    # ID 4 (Omega-3, dose_per_day=1): noon 12:00
-    # IDs 5,6,7 (dose_per_day=1): evening 19:00
-    supps = db.execute('SELECT id, dose_per_day FROM supplements WHERE active=1 ORDER BY id').fetchall()
+    # Data-driven: use dose_morning/dose_noon/dose_evening columns
+    supps = db.execute('SELECT id, dose_morning, dose_noon, dose_evening FROM supplements WHERE active=1 ORDER BY id').fetchall()
     for s in supps:
-        sid = s[0]
-        dpd = s[1]
-        if dpd == 2:  # IDs 1,2,3,8
+        sid, dm, dn, de = s[0], s[1], s[2], s[3]
+        if dm:
             db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
                        (date, sid, date + ' 07:00:00', 'morning'))
-            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
-                       (date, sid, date + ' 19:00:00', 'evening'))
-        elif sid == 4:  # Omega-3
+        if dn:
             db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
                        (date, sid, date + ' 12:00:00', 'noon'))
-        else:  # IDs 5,6,7
+        if de:
             db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
                        (date, sid, date + ' 19:00:00', 'evening'))
     db.commit()
