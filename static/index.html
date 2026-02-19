@@ -80,6 +80,33 @@ canvas{max-height:220px}
   </div>
 </div>
 
+<!-- Herz-Kreislauf Analyse -->
+<div class="card p-3 mb-3">
+  <h6 style="cursor:pointer" onclick="toggleAcc('cardioBody')" class="d-flex align-items-center gap-2 flex-wrap">
+    <span>❤️ Herz-Kreislauf Analyse <span id="cardioBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></span>
+    <span id="cardioAlerts" class="d-flex gap-1 flex-wrap"></span>
+  </h6>
+  <div id="cardioBody" style="display:none">
+    <div class="table-responsive">
+      <table class="table table-sm table-dark mb-2" style="font-size:0.85rem">
+        <thead><tr><th>Substanz</th><th>Quelle</th><th>Tägl. Menge</th><th>Opt. Bereich</th><th>Status</th><th>Hinweis</th></tr></thead>
+        <tbody id="cardioTableBody">
+          <tr><td colspan="6" class="text-muted text-center">Laden...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="alert alert-info py-2 mb-2" style="font-size:0.85rem">
+      💊 <strong>MiraCHOL-Synergie:</strong> Monacolin K (Cholesterin-Hemmer) + Ubiquinol (CoQ10-Schutz) — clevere Kombination: Monacolin K erschöpft körpereigenes CoQ10, Ubiquinol kompensiert das direkt.
+    </div>
+    <div class="alert alert-info py-2 mb-2" style="font-size:0.85rem">
+      🍣 <strong>Lachs-Tipp:</strong> 2–3× pro Woche 150g Lachs senkt Triglyzeride deutlich (EPA/DHA Omega-3).
+    </div>
+    <div class="alert alert-warning py-2 mb-0" style="font-size:0.85rem">
+      🍬 <strong>Zucker-Hinweis:</strong> Erhöhter Zuckerkonsum → Triglyzeride ↑ → LDL ↑ — Monacolin K und Omega-3 wirken dem entgegen.
+    </div>
+  </div>
+</div>
+
 <!-- Nährwert-Analyse -->
 <div class="card p-3 mb-3">
   <h6 style="cursor:pointer" onclick="toggleAcc('nutriBody')">🔬 Nährwert-Analyse <span id="nutriBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
@@ -132,7 +159,7 @@ const API = '';
 let currentDate = new Date().toISOString().slice(0,10);
 const dateInput = document.getElementById('dateInput');
 dateInput.value = currentDate;
-dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); loadProstataAnalysis(); };
+dateInput.onchange = () => { currentDate = dateInput.value; loadAll(); loadSupplements(); loadProstataAnalysis(); loadCardioAnalysis(); };
 
 const mealLabels = {breakfast:'🌅 Frühstück',lunch:'🍽️ Mittagessen',dinner:'🌙 Abendessen',snack:'🍎 Snacks'};
 const mealColors = {breakfast:'#f0883e',lunch:'#3fb950',dinner:'#bc8cff',snack:'#58a6ff'};
@@ -502,6 +529,7 @@ async function saveMeal() {
   bootstrap.Modal.getInstance(document.getElementById('mealModal')).hide();
   loadAll();
   loadProstataAnalysis();
+  loadCardioAnalysis();
 }
 
 async function deleteMeal(id) {
@@ -509,6 +537,7 @@ async function deleteMeal(id) {
   await fetch(`${API}/api/meals/${id}`, {method:'DELETE'});
   loadAll();
   loadProstataAnalysis();
+  loadCardioAnalysis();
 }
 
 // === Supplements ===
@@ -569,6 +598,7 @@ async function toggleSupplement(suppId, doseSlot, taken) {
   });
   loadSupplements();
   loadProstataAnalysis();
+  loadCardioAnalysis();
 }
 
 // === Prostata-Analyse ===
@@ -647,9 +677,82 @@ function renderProstataAnalysis(data) {
   document.getElementById('prostataAlerts').innerHTML = alertHtml;
 }
 
+// === Herz-Kreislauf Analyse ===
+async function loadCardioAnalysis() {
+  try {
+    const data = await fetch(`${API}/api/cardio-analysis/${currentDate}`).then(r => r.json());
+    renderCardioAnalysis(data);
+  } catch (e) {
+    console.error('Cardio analysis error:', e);
+  }
+}
+
+function renderCardioAnalysis(data) {
+  const tbody = document.getElementById('cardioTableBody');
+  if (!data || !data.substances || data.substances.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center">Keine Daten</td></tr>';
+    return;
+  }
+
+  let html = '';
+  data.substances.forEach(s => {
+    let badge;
+    if (s.status === 'optimal') {
+      badge = '<span class="badge bg-success">✅ Optimal</span>';
+    } else if (s.status === 'low') {
+      badge = '<span class="badge bg-warning text-dark">⚠️ Zu niedrig</span>';
+    } else if (s.status === 'high') {
+      badge = '<span class="badge bg-danger">🔴 Zu hoch</span>';
+    } else {
+      badge = '<span class="badge bg-secondary">—</span>';
+    }
+
+    const amount = s.total > 0 ? `${s.total} ${s.unit}` : '—';
+    const sources = s.sources.length > 0 ? s.sources.join('<br>') : '<span class="text-muted">—</span>';
+
+    let breakdown = '';
+    if (s.total > 0) {
+      const parts = [];
+      if (s.from_supplements > 0) parts.push(`💊 ${s.from_supplements}${s.unit}`);
+      if (s.from_food > 0) parts.push(`🥗 ${s.from_food}${s.unit}`);
+      breakdown = parts.length > 0 ? `<br><small class="text-muted">${parts.join(' + ')}</small>` : '';
+    }
+
+    const note = s.note ? `<small class="text-muted">${s.note}</small>` : '';
+
+    html += `<tr>
+      <td><strong>${s.name}</strong></td>
+      <td style="font-size:0.8rem">${sources}</td>
+      <td>${amount}${breakdown}</td>
+      <td>${s.optimal_min}–${s.optimal_max} ${s.unit}</td>
+      <td>${badge}</td>
+      <td style="font-size:0.8rem">${note}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = html;
+
+  // Update collapsed header badges
+  const alerts = data.substances.filter(s => s.status !== 'optimal' && s.status !== 'none' && s.total > 0);
+  const noData = data.substances.filter(s => s.status === 'none' || s.total === 0);
+  let alertHtml = alerts.map(s => {
+    const icon = s.status === 'high' ? '🔴' : '⚠️';
+    const bg = s.status === 'high' ? 'bg-danger' : 'bg-warning text-dark';
+    return `<span class="badge ${bg}" style="font-size:0.7rem">${icon} ${s.name}</span>`;
+  }).join('');
+  if (noData.length > 0) {
+    alertHtml += `<span class="badge bg-secondary" style="font-size:0.7rem">${noData.length} nicht eingenommen</span>`;
+  }
+  if (alerts.length === 0 && noData.length === 0) {
+    alertHtml = '<span class="badge bg-success" style="font-size:0.7rem">✅ Alles optimal</span>';
+  }
+  document.getElementById('cardioAlerts').innerHTML = alertHtml;
+}
+
 loadAll();
 loadSupplements();
 loadProstataAnalysis();
+loadCardioAnalysis();
 </script>
 </body>
 </html>

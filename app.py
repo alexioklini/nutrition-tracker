@@ -405,7 +405,7 @@ SUPPLEMENT_NUTRIENTS = {
         'morning': {'vitamin_d_iu': 4000},
     },
     5: {  # MiraCHOL 3.0 Gold
-        'evening': {'boswellia_mg': 100},
+        'evening': {'boswellia_mg': 100, 'monacolin_k_mg': 2.95, 'ubiquinol_mg': 100},
     },
     1: {  # Vitals Männerformel Pro Prostata (2 caps/day = morning + evening, each half)
         'morning': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50},
@@ -605,6 +605,158 @@ def prostate_analysis(date):
             'total': total,
             'sources': sources,
             'status': status,
+        })
+
+    return jsonify({'date': date, 'substances': substances})
+
+
+# === Cardio Analysis ===
+
+CARDIO_SUBSTANCES = [
+    {'name': 'Monacolin K', 'key': 'monacolin_k_mg', 'unit': 'mg', 'min': 2.95, 'max': 10, 'note': 'Cholesterin-Synthese-Hemmer (Statin-ähnlich, Rotschimmelreis)'},
+    {'name': 'Ubiquinol (CoQ10)', 'key': 'ubiquinol_mg', 'unit': 'mg', 'min': 100, 'max': 300, 'note': 'Schützt vor CoQ10-Erschöpfung durch Monacolin K'},
+    {'name': 'Omega-3 EPA/DHA', 'key': 'omega3_epa_dha_mg', 'unit': 'mg', 'min': 1000, 'max': 3000, 'note': 'Senkt Triglyzeride, HDL-fördernd'},
+    {'name': 'Boswelliasäuren', 'key': 'boswellia_mg', 'unit': 'mg', 'min': 300, 'max': 500, 'note': 'Entzündungshemmend, kardiovaskulärer Schutz'},
+]
+
+@app.route('/api/cardio-analysis/<date>')
+def cardio_analysis(date):
+    db = get_db()
+
+    # 1. Gather supplement contributions
+    supp_totals = {}
+    for s in CARDIO_SUBSTANCES:
+        supp_totals[s['key']] = 0.0
+
+    supp_sources = []
+
+    # Get taken supplement doses for this date
+    intake_rows = db.execute('''
+        SELECT si.supplement_id, si.dose_slot, si.taken, s.name
+        FROM supplement_intake si
+        JOIN supplements s ON s.id = si.supplement_id
+        WHERE si.date = ? AND si.taken = 1
+    ''', (date,)).fetchall()
+
+    for row in intake_rows:
+        sid = row['supplement_id']
+        slot = row['dose_slot']
+        sname = row['name']
+        if sid in SUPPLEMENT_NUTRIENTS and slot in SUPPLEMENT_NUTRIENTS[sid]:
+            nutrients = SUPPLEMENT_NUTRIENTS[sid][slot]
+            for nutrient_key, amount in nutrients.items():
+                if nutrient_key in supp_totals:
+                    supp_totals[nutrient_key] += amount
+            slot_label = {'morning': 'morgens', 'noon': 'mittags', 'evening': 'abends'}.get(slot, slot)
+            supp_sources.append((sname, slot_label, nutrients))
+
+    # 2. Gather food contributions from meals
+    food_totals = {}
+    for s in CARDIO_SUBSTANCES:
+        food_totals[s['key']] = 0.0
+
+    food_sources = []
+
+    # Get all food_nutrients entries
+    food_entries = db.execute('SELECT * FROM food_nutrients').fetchall()
+
+    # Get all meals for this date (including components)
+    meals = db.execute('SELECT * FROM meals WHERE date=?', (date,)).fetchall()
+    components = db.execute('''
+        SELECT mc.* FROM meal_components mc
+        JOIN meals m ON m.id = mc.meal_id
+        WHERE m.date = ?
+    ''', (date,)).fetchall()
+
+    all_descs = [(m['description'], None) for m in meals]
+    all_descs += [(c['description'], None) for c in components]
+    for m in meals:
+        if m['notes']:
+            all_descs.append((m['notes'], None))
+
+    candidates = []
+    for food in food_entries:
+        keywords = [kw.strip().lower() for kw in food['keywords'].split(',')]
+        for i, (desc, _) in enumerate(all_descs):
+            desc_lower = desc.lower()
+            for kw in keywords:
+                if kw in desc_lower:
+                    candidates.append((i, food, len(kw)))
+                    break
+    candidates.sort(key=lambda x: -x[2])
+
+    matched_descs = set()
+    for i, food, _kw_len in candidates:
+        if i in matched_descs:
+            continue
+        matched_descs.add(i)
+        desc = all_descs[i][0]
+
+        grams = _extract_grams(desc)
+        if grams is None:
+            grams = food['portion_g']
+
+        scale = grams / food['portion_g']
+
+        source_parts = []
+        for s in CARDIO_SUBSTANCES:
+            key = s['key']
+            val = (food[key] if key in food.keys() else 0) * scale
+            if val > 0:
+                food_totals[key] += val
+                source_parts.append(f"{round(val, 1)}{s['unit']} {s['name']}")
+
+        if source_parts:
+            food_sources.append(f"{desc.strip()} ({food['food_name']})")
+
+    # 3. Build response
+    substances = []
+    for s in CARDIO_SUBSTANCES:
+        key = s['key']
+        from_supp = round(supp_totals.get(key, 0), 1)
+        from_food = round(food_totals.get(key, 0), 1)
+        total = round(from_supp + from_food, 1)
+
+        sources = []
+        for sname, slot_label, nutrients in supp_sources:
+            if key in nutrients:
+                sources.append(f"{sname} ({slot_label})")
+        src_matched = set()
+        for ci, food, _kw_len in candidates:
+            if ci in src_matched:
+                continue
+            src_matched.add(ci)
+            desc = all_descs[ci][0]
+            food_val = food[key] if key in food.keys() else 0
+            if food_val > 0:
+                grams = _extract_grams(desc)
+                if grams is None:
+                    grams = food['portion_g']
+                scaled = food_val * (grams / food['portion_g'])
+                if scaled > 0:
+                    sources.append(f"{desc.strip()} (~{round(scaled, 1)}{s['unit']})")
+
+        if total <= 0:
+            status = 'none'
+        elif total < s['min']:
+            status = 'low'
+        elif total > s['max']:
+            status = 'high'
+        else:
+            status = 'optimal'
+
+        substances.append({
+            'name': s['name'],
+            'key': key,
+            'unit': s['unit'],
+            'optimal_min': s['min'],
+            'optimal_max': s['max'],
+            'from_supplements': from_supp,
+            'from_food': from_food,
+            'total': total,
+            'sources': sources,
+            'status': status,
+            'note': s.get('note', ''),
         })
 
     return jsonify({'date': date, 'substances': substances})
