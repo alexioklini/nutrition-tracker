@@ -322,22 +322,28 @@ def get_supplements():
 
 def ensure_supplement_records(db, date):
     """Auto-insert supplement_intake records for a date if none exist."""
+    from datetime import datetime
     count = db.execute('SELECT COUNT(*) FROM supplement_intake WHERE date=?', (date,)).fetchone()[0]
     if count > 0:
         return
+    # Weekday check: 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+    weekday = datetime.strptime(date, '%Y-%m-%d').weekday()
+    is_weekend = weekday >= 4  # Fri, Sat, Sun
     # Data-driven: use dose_morning/dose_noon/dose_evening columns
     supps = db.execute('SELECT id, dose_morning, dose_noon, dose_evening FROM supplements WHERE active=1 ORDER BY id').fetchall()
     for s in supps:
         sid, dm, dn, de = s[0], s[1], s[2], s[3]
+        # Omega-3 (id=4): only auto-taken on Fri/Sat/Sun
+        auto_taken = 0 if (sid == 4 and not is_weekend) else 1
         if dm:
-            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
-                       (date, sid, date + ' 07:00:00', 'morning'))
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,?,?,?)',
+                       (date, sid, auto_taken, date + ' 07:00:00', 'morning'))
         if dn:
-            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
-                       (date, sid, date + ' 12:00:00', 'noon'))
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,?,?,?)',
+                       (date, sid, auto_taken, date + ' 12:00:00', 'noon'))
         if de:
-            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,0,?,?)',
-                       (date, sid, date + ' 19:00:00', 'evening'))
+            db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,?,?,?)',
+                       (date, sid, auto_taken, date + ' 19:00:00', 'evening'))
     db.commit()
 
 @app.route('/api/supplement-intake/<date>')
