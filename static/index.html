@@ -55,8 +55,12 @@ canvas{max-height:220px}
 
 <!-- Prostata-Analyse -->
 <div class="card p-3 mb-3">
-  <h6 style="cursor:pointer" onclick="toggleAcc('prostataBody')">
-    🔬 Prostata-Analyse <span id="prostataBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span>
+  <h6 style="cursor:pointer" onclick="toggleAcc('prostataBody')" class="d-flex align-items-center gap-2 flex-wrap">
+    <span>🔬 Prostata-Analyse <span id="prostataBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></span>
+    <span id="prostataAlerts" class="d-flex gap-1 flex-wrap">
+      <span class="badge bg-warning text-dark" style="font-size:0.7rem">⚠️ Lycopin</span>
+      <span class="badge bg-warning text-dark" style="font-size:0.7rem">⚠️ Omega-3</span>
+    </span>
   </h6>
   <div id="prostataBody" style="display:none">
     <div class="table-responsive">
