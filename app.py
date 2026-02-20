@@ -334,7 +334,14 @@ def ensure_supplement_records(db, date):
     for s in supps:
         sid, dm, dn, de = s[0], s[1], s[2], s[3]
         # Omega-3 (id=4): only auto-taken on Fri/Sat/Sun
-        auto_taken = 0 if (sid == 4 and not is_weekend) else 1
+        # Omega-3 (id=4): only auto-taken on Fri/Sat/Sun
+        # Dekristolvit D3 (id=9): never auto-taken (optional, 2-3x/week)
+        if sid == 9:
+            auto_taken = 0
+        elif sid == 4 and not is_weekend:
+            auto_taken = 0
+        else:
+            auto_taken = 1
         if dm:
             db.execute('INSERT OR IGNORE INTO supplement_intake (date, supplement_id, taken, taken_at, dose_slot) VALUES (?,?,?,?,?)',
                        (date, sid, auto_taken, date + ' 07:00:00', 'morning'))
@@ -373,6 +380,9 @@ def get_supplement_intake(date):
             'doses': [{'id': d['id'], 'dose_slot': d['dose_slot'], 'taken': d['taken'],
                        'taken_at': d['taken_at'].split(' ')[-1][:5] if d['taken_at'] else None} for d in doses]
         })
+    # Sort by earliest dose slot: morning first, then noon, then evening
+    slot_order = {'morning': 0, 'noon': 1, 'evening': 2}
+    result.sort(key=lambda s: min((slot_order.get(d['dose_slot'], 9) for d in s['doses']), default=9))
     return jsonify(result)
 
 @app.route('/api/supplement-intake', methods=['POST'])
@@ -420,9 +430,9 @@ def get_supplement_intake_week(date):
 # Supplement -> prostate nutrient mappings (by supplement ID and dose_slot)
 # Format: {supplement_id: {dose_slot: {nutrient: amount}}}
 SUPPLEMENT_NUTRIENTS = {
-    8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap, ~22mg caffeine per cap
-        'morning': {'egcg_mg': 150, 'caffeine_mg': 44},   # 2 caps morning
-        'evening': {'egcg_mg': 75, 'caffeine_mg': 22},    # 1 cap evening
+    8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap × 2× Bioverfügbarkeit = 150mg effektiv/Kapsel
+        'morning': {'egcg_mg': 300, 'caffeine_mg': 44},   # 2 caps × 150mg eff. EGCG
+        'evening': {'egcg_mg': 150, 'caffeine_mg': 22},   # 1 cap × 150mg eff. EGCG
     },
     4: {  # Apremia Omega-3
         'noon': {'omega3_epa_dha_mg': 300},
@@ -437,8 +447,8 @@ SUPPLEMENT_NUTRIENTS = {
         'morning': {'curcumin_mg': 250, 'boswellia_mg': 150, 'vitamin_d_iu': 400},
         'evening': {'curcumin_mg': 250, 'boswellia_mg': 150, 'vitamin_d_iu': 400},
     },
-    9: {  # Dekristolvit D3 4000 IU
-        'morning': {'vitamin_d_iu': 4000},
+    9: {  # Dekristolvit D3 4000 IU (optional, 2-3x/Woche, zum Mittagessen)
+        'noon': {'vitamin_d_iu': 4000},
     },
     5: {  # MiraCHOL 3.0 Gold
         'evening': {'boswellia_mg': 100, 'monacolin_k_mg': 2.95, 'ubiquinol_mg': 100},

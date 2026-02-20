@@ -563,37 +563,44 @@ async function loadSupplements() {
   bar.style.width = pct + '%';
   bar.className = 'progress-bar ' + (pct === 100 ? 'bg-success' : 'bg-info');
 
-  const categoryIcons = {prostata:'🎯',leber:'🫁',entzündung:'🔥',herz:'❤️',antioxidans:'🍵',general:'💊'};
-  const slotTimes = {morning:'07:00', noon:'12:00', evening:'19:00'};
-  let html = '<div class="list-group list-group-flush">';
+  const slotLabels = {morning:'☀️ Morgens', noon:'🌤️ Mittags', evening:'🌙 Abends'};
+  const slotOrder = ['morning', 'noon', 'evening'];
+
+  // Build flat list: one entry per supplement per dose slot
+  const entries = [];
   data.forEach(s => {
-    const prostBadge = s.prostate_relevant ? ' <span class="badge bg-info" style="font-size:0.7rem">🎯 Prostata</span>' : '';
-    // Build dose checkboxes
-    let dosesHtml = '';
     s.doses.forEach(d => {
-      const time = slotTimes[d.dose_slot] || d.taken_at || '';
-      // Show capsule count per slot if > 1
-      const doseCountKey = 'dose_' + d.dose_slot;
-      const doseCount = s[doseCountKey] || 1;
-      const countLabel = doseCount > 1 ? ` (${doseCount} Kaps.)` : '';
-      dosesHtml += `
-        <div class="form-check form-check-inline me-3">
-          <input class="form-check-input" type="checkbox" id="supp-${s.supplement_id}-${d.dose_slot}"
-            ${d.taken ? 'checked' : ''} onchange="toggleSupplement(${s.supplement_id}, '${d.dose_slot}', this.checked)">
-          <label class="form-check-label" for="supp-${s.supplement_id}-${d.dose_slot}" style="font-size:0.85rem;cursor:pointer">${time}${countLabel}</label>
+      entries.push({...s, slot: d.dose_slot, taken: d.taken, doseId: d.id});
+    });
+  });
+
+  // Group by slot
+  let html = '<div class="list-group list-group-flush">';
+  slotOrder.forEach(slot => {
+    const group = entries.filter(e => e.slot === slot);
+    if (group.length === 0) return;
+    html += `<div class="list-group-item px-2 py-1" style="background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.08)">
+      <strong style="font-size:0.85rem">${slotLabels[slot]}</strong></div>`;
+    group.forEach(e => {
+      const catBadges = {prostata:'🎯 Prostata',leber:'🛡️ Leberschutz',herz:'❤️ Herz-Kreislauf',entzündung:'🔥 Entzündungshemmend',antioxidans:'🍵 Antioxidans',vitamin:'💊 Vitamin'};
+      let badges = '';
+      if (e.category && catBadges[e.category]) badges += ` <span class="badge" style="font-size:0.65rem;background:rgba(255,255,255,0.1)">${catBadges[e.category]}</span>`;
+      if (e.prostate_relevant && e.category !== 'prostata') badges += ` <span class="badge bg-info" style="font-size:0.65rem">🎯 Prostata</span>`;
+      const doseCountKey = 'dose_' + e.slot;
+      const doseCount = e[doseCountKey] || 1;
+      const countLabel = doseCount > 1 ? ` ${doseCount} Kaps.` : ` 1 ${e.unit}`;
+      html += `
+        <div class="list-group-item d-flex align-items-center px-2 py-2" style="background:transparent;border-color:rgba(255,255,255,0.05)">
+          <div class="form-check me-2" style="min-width:30px">
+            <input class="form-check-input" type="checkbox" id="supp-${e.supplement_id}-${e.slot}"
+              ${e.taken ? 'checked' : ''} onchange="toggleSupplement(${e.supplement_id}, '${e.slot}', this.checked)">
+          </div>
+          <div style="flex:1">
+            <span style="font-size:0.9rem"><strong>${e.name}</strong>${badges}</span>
+            <small class="text-muted ms-1">${countLabel}</small>
+          </div>
         </div>`;
     });
-
-    html += `
-      <div class="list-group-item d-flex align-items-center px-2 py-2" style="background:transparent;border-color:rgba(255,255,255,0.08)">
-        <div class="d-flex align-items-center me-2" style="min-width:80px">
-          ${dosesHtml}
-        </div>
-        <div style="flex:1">
-          <strong>${s.name}</strong>${prostBadge}
-          <br><small class="text-muted">${s.dose_per_day} ${s.unit} · ${s.key_ingredients}</small>
-        </div>
-      </div>`;
   });
   html += '</div>';
   document.getElementById('suppList').innerHTML = html;
