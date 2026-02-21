@@ -628,6 +628,15 @@ async function loadProstataAnalysis() {
   }
 }
 
+// Severity color: 0=green/yellow, 0.5=orange, 1.0=red
+function severityColor(sev) {
+  sev = Math.max(0, Math.min(1, sev));
+  if (sev < 0.15) return '#ffc107'; // yellow — barely outside
+  if (sev < 0.35) return '#ff9800'; // orange — moderately outside
+  if (sev < 0.6)  return '#f44336'; // red — significantly outside
+  return '#d32f2f'; // dark red — far outside
+}
+
 function renderProstataAnalysis(data) {
   const tbody = document.getElementById('prostataTableBody');
   if (!data || !data.substances || data.substances.length === 0) {
@@ -637,14 +646,17 @@ function renderProstataAnalysis(data) {
 
   let html = '';
   data.substances.forEach(s => {
-    // Status badge
+    // Status badge with gradient severity coloring
     let badge;
     if (s.status === 'optimal') {
       badge = '<span class="badge bg-success">✅ Optimal</span>';
-    } else if (s.status === 'low') {
-      badge = '<span class="badge bg-warning text-dark">⚠️ Zu niedrig</span>';
-    } else if (s.status === 'high') {
-      badge = '<span class="badge bg-danger">🔴 Zu hoch</span>';
+    } else if (s.status === 'low' || s.status === 'high') {
+      const sev = s.severity || 0;
+      const bg = severityColor(sev);
+      const icon = s.status === 'high' ? '↑' : '↓';
+      const label = s.status === 'high' ? 'Zu hoch' : 'Zu niedrig';
+      const sevPct = Math.round(sev * 100);
+      badge = `<span class="badge" style="background:${bg};color:#000">${icon} ${label} <small>(${sevPct}%)</small></span>`;
     } else {
       badge = '<span class="badge bg-secondary">—</span>';
     }
@@ -679,9 +691,9 @@ function renderProstataAnalysis(data) {
   const alerts = data.substances.filter(s => s.status !== 'optimal' && s.status !== 'none' && s.total > 0);
   const noData = data.substances.filter(s => s.status === 'none' || s.total === 0);
   let alertHtml = alerts.map(s => {
-    const icon = s.status === 'high' ? '🔴' : '⚠️';
-    const bg = s.status === 'high' ? 'bg-danger' : 'bg-warning text-dark';
-    return `<span class="badge ${bg}" style="font-size:0.7rem">${icon} ${s.name}</span>`;
+    const icon = s.status === 'high' ? '↑' : '↓';
+    const bg = severityColor(s.severity || 0);
+    return `<span class="badge" style="font-size:0.7rem;background:${bg};color:#000">${icon} ${s.name}</span>`;
   }).join('');
   // Add count of missing if any
   if (noData.length > 0) {
@@ -716,10 +728,13 @@ function renderCardioAnalysis(data) {
     let badge;
     if (s.status === 'optimal') {
       badge = '<span class="badge bg-success">✅ Optimal</span>';
-    } else if (s.status === 'low') {
-      badge = '<span class="badge bg-warning text-dark">⚠️ Zu niedrig</span>';
-    } else if (s.status === 'high') {
-      badge = '<span class="badge bg-danger">🔴 Zu hoch</span>';
+    } else if (s.status === 'low' || s.status === 'high') {
+      const sev = s.severity || 0;
+      const bg = severityColor(sev);
+      const icon = s.status === 'high' ? '↑' : '↓';
+      const label = s.status === 'high' ? 'Zu hoch' : 'Zu niedrig';
+      const sevPct = Math.round(sev * 100);
+      badge = `<span class="badge" style="background:${bg};color:#000">${icon} ${label} <small>(${sevPct}%)</small></span>`;
     } else {
       badge = '<span class="badge bg-secondary">—</span>';
     }
@@ -753,9 +768,9 @@ function renderCardioAnalysis(data) {
   const alerts = data.substances.filter(s => s.status !== 'optimal' && s.status !== 'none' && s.total > 0);
   const noData = data.substances.filter(s => s.status === 'none' || s.total === 0);
   let alertHtml = alerts.map(s => {
-    const icon = s.status === 'high' ? '🔴' : '⚠️';
-    const bg = s.status === 'high' ? 'bg-danger' : 'bg-warning text-dark';
-    return `<span class="badge ${bg}" style="font-size:0.7rem">${icon} ${s.name}</span>`;
+    const icon = s.status === 'high' ? '↑' : '↓';
+    const bg = severityColor(s.severity || 0);
+    return `<span class="badge" style="font-size:0.7rem;background:${bg};color:#000">${icon} ${s.name}</span>`;
   }).join('');
   if (noData.length > 0) {
     alertHtml += `<span class="badge bg-secondary" style="font-size:0.7rem">${noData.length} nicht eingenommen</span>`;

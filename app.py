@@ -559,10 +559,9 @@ def prostate_analysis(date):
         if m['notes']:
             all_descs.append((m['notes'], None))
 
-    # Match each description against foods, but avoid double-counting:
-    # - Each description should match at most one food
-    # - Score matches by keyword length to prefer specific matches
-    # Build all candidate matches: (desc_index, food_entry, best_keyword_len)
+    # Match descriptions against foods, allowing MULTIPLE foods per description
+    # (e.g. "Poke Bowl mit Lachs, Edamame" should match both Lachs AND Edamame)
+    # But avoid the same food matching the same description twice.
     candidates = []
     for food in food_entries:
         keywords = [kw.strip().lower() for kw in food['keywords'].split(',')]
@@ -575,11 +574,12 @@ def prostate_analysis(date):
     # Sort by keyword length descending (most specific match wins)
     candidates.sort(key=lambda x: -x[2])
 
-    matched_descs = set()
+    matched_pairs = set()  # (desc_index, food_name) to avoid same food matching same desc twice
     for i, food, _kw_len in candidates:
-        if i in matched_descs:
+        pair_key = (i, food['food_name'])
+        if pair_key in matched_pairs:
             continue
-        matched_descs.add(i)
+        matched_pairs.add(pair_key)
         desc = all_descs[i][0]
 
         # Extract portion
@@ -615,12 +615,13 @@ def prostate_analysis(date):
         for sname, slot_label, nutrients in supp_sources:
             if key in nutrients:
                 sources.append(f"{sname} ({slot_label})")
-        # Food sources for this nutrient (reuse candidates with same priority)
-        src_matched = set()
+        # Food sources for this nutrient (allow multiple foods per desc)
+        src_matched_pairs = set()
         for ci, food, _kw_len in candidates:
-            if ci in src_matched:
+            pair_key = (ci, food['food_name'])
+            if pair_key in src_matched_pairs:
                 continue
-            src_matched.add(ci)
+            src_matched_pairs.add(pair_key)
             desc = all_descs[ci][0]
             food_val = food[key] if key in food.keys() else 0
             if food_val > 0:
@@ -631,15 +632,19 @@ def prostate_analysis(date):
                 if scaled > 0:
                     sources.append(f"{desc.strip()} (~{round(scaled, 1)}{s['unit']})")
 
-        # Determine status
+        # Determine status and severity (0.0 = barely outside, 1.0 = far outside)
         if total <= 0:
             status = 'none'
+            severity = 0
         elif total < s['min']:
             status = 'low'
+            severity = min(1.0, (s['min'] - total) / s['min']) if s['min'] > 0 else 0
         elif total > s['max']:
             status = 'high'
+            severity = min(1.0, (total - s['max']) / s['max']) if s['max'] > 0 else 0
         else:
             status = 'optimal'
+            severity = 0
 
         substances.append({
             'name': s['name'],
@@ -652,6 +657,7 @@ def prostate_analysis(date):
             'total': total,
             'sources': sources,
             'status': status,
+            'severity': round(severity, 3),
         })
 
     return jsonify({'date': date, 'substances': substances})
@@ -733,11 +739,12 @@ def cardio_analysis(date):
                     break
     candidates.sort(key=lambda x: -x[2])
 
-    matched_descs = set()
+    matched_pairs = set()  # (desc_index, food_name) to allow multiple foods per desc
     for i, food, _kw_len in candidates:
-        if i in matched_descs:
+        pair_key = (i, food['food_name'])
+        if pair_key in matched_pairs:
             continue
-        matched_descs.add(i)
+        matched_pairs.add(pair_key)
         desc = all_descs[i][0]
 
         grams = _extract_grams(desc)
@@ -769,11 +776,12 @@ def cardio_analysis(date):
         for sname, slot_label, nutrients in supp_sources:
             if key in nutrients:
                 sources.append(f"{sname} ({slot_label})")
-        src_matched = set()
+        src_matched_pairs = set()
         for ci, food, _kw_len in candidates:
-            if ci in src_matched:
+            pair_key = (ci, food['food_name'])
+            if pair_key in src_matched_pairs:
                 continue
-            src_matched.add(ci)
+            src_matched_pairs.add(pair_key)
             desc = all_descs[ci][0]
             food_val = food[key] if key in food.keys() else 0
             if food_val > 0:
@@ -786,12 +794,16 @@ def cardio_analysis(date):
 
         if total <= 0:
             status = 'none'
+            severity = 0
         elif total < s['min']:
             status = 'low'
+            severity = min(1.0, (s['min'] - total) / s['min']) if s['min'] > 0 else 0
         elif total > s['max']:
             status = 'high'
+            severity = min(1.0, (total - s['max']) / s['max']) if s['max'] > 0 else 0
         else:
             status = 'optimal'
+            severity = 0
 
         substances.append({
             'name': s['name'],
@@ -804,6 +816,7 @@ def cardio_analysis(date):
             'total': total,
             'sources': sources,
             'status': status,
+            'severity': round(severity, 3),
             'note': s.get('note', ''),
         })
 
