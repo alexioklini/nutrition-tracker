@@ -918,7 +918,7 @@ def daily_summary(date):
         workout['duration_min']
     )
 
-    base_goal = 2000
+    base_goal = 2025  # Mifflin-St Jeor: 181cm, 98kg, M, 54J → BMR 1836 × 1.375 - 500 deficit
     cal_goal = base_goal + workout_calc['kcal_burned']
     net_calories = round(totals['calories'] - workout_calc['kcal_burned'])
 
