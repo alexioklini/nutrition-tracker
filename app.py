@@ -30,7 +30,7 @@ def init_db():
     db.execute('''CREATE TABLE IF NOT EXISTS meals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         date TEXT NOT NULL,
-        meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast','lunch','dinner','snack')),
+        meal_type TEXT NOT NULL CHECK(meal_type IN ('breakfast','lunch','dinner','snack','supplement')),
         description TEXT NOT NULL,
         calories REAL DEFAULT 0,
         protein_g REAL DEFAULT 0,
@@ -78,6 +78,14 @@ def init_db():
     )''')
     db.execute('''CREATE UNIQUE INDEX IF NOT EXISTS idx_supplement_intake_unique
         ON supplement_intake(date, supplement_id, dose_slot)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS hydration (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        date TEXT NOT NULL,
+        amount_ml INTEGER NOT NULL,
+        drink_type TEXT DEFAULT 'water',
+        description TEXT DEFAULT '',
+        created_at TEXT DEFAULT (datetime('now'))
+    )''')
     # Pre-fill supplements if empty
     if db.execute('SELECT COUNT(*) FROM supplements').fetchone()[0] == 0:
         supps = [
@@ -107,6 +115,26 @@ def init_db():
         ]
         db.executemany('INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)', meals)
         db.commit()
+    # Migration: add sugar split + micronutrient columns to meals
+    meal_cols = [row[1] for row in db.execute('PRAGMA table_info(meals)').fetchall()]
+    new_meal_cols = {
+        'sugar_natural_g': 'REAL DEFAULT 0',
+        'sugar_added_g': 'REAL DEFAULT 0',
+        'vitamin_c_mg': 'REAL DEFAULT 0',
+        'vitamin_d_iu': 'REAL DEFAULT 0',
+        'vitamin_k_mcg': 'REAL DEFAULT 0',
+        'potassium_mg': 'REAL DEFAULT 0',
+        'magnesium_mg': 'REAL DEFAULT 0',
+        'zinc_mg': 'REAL DEFAULT 0',
+        'selenium_mcg': 'REAL DEFAULT 0',
+        'iron_mg': 'REAL DEFAULT 0',
+        'calcium_mg': 'REAL DEFAULT 0',
+        'folate_mcg': 'REAL DEFAULT 0',
+    }
+    for col, typedef in new_meal_cols.items():
+        if col not in meal_cols:
+            db.execute(f'ALTER TABLE meals ADD COLUMN {col} {typedef}')
+    db.commit()
     # Migration: add dose_morning/dose_noon/dose_evening columns if missing
     cols = [row[1] for row in db.execute('PRAGMA table_info(supplements)').fetchall()]
     if 'dose_morning' not in cols:
@@ -262,8 +290,13 @@ def get_meals():
 def create_meal():
     d = request.json
     db = get_db()
-    cur = db.execute('INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        (d['date'], d['meal_type'], d['description'], d.get('calories',0), d.get('protein_g',0), d.get('fat_g',0), d.get('carbs_g',0), d.get('fiber_g',0), d.get('sugar_g',0), d.get('notes',''), d.get('source','manual')))
+    cur = db.execute('''INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,
+        sugar_natural_g,sugar_added_g,vitamin_c_mg,vitamin_d_iu,vitamin_k_mcg,potassium_mg,magnesium_mg,zinc_mg,selenium_mcg,iron_mg,calcium_mg,folate_mcg,
+        notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (d['date'], d['meal_type'], d['description'], d.get('calories',0), d.get('protein_g',0), d.get('fat_g',0), d.get('carbs_g',0), d.get('fiber_g',0), d.get('sugar_g',0),
+         d.get('sugar_natural_g',0), d.get('sugar_added_g',0), d.get('vitamin_c_mg',0), d.get('vitamin_d_iu',0), d.get('vitamin_k_mcg',0),
+         d.get('potassium_mg',0), d.get('magnesium_mg',0), d.get('zinc_mg',0), d.get('selenium_mcg',0), d.get('iron_mg',0), d.get('calcium_mg',0), d.get('folate_mcg',0),
+         d.get('notes',''), d.get('source','manual')))
     db.commit()
     row = db.execute('SELECT * FROM meals WHERE id=?', (cur.lastrowid,)).fetchone()
     return jsonify(dict(row)), 201
@@ -272,7 +305,9 @@ def create_meal():
 def update_meal(meal_id):
     d = request.json
     db = get_db()
-    fields = ['date','meal_type','description','calories','protein_g','fat_g','carbs_g','fiber_g','sugar_g','notes','source']
+    fields = ['date','meal_type','description','calories','protein_g','fat_g','carbs_g','fiber_g','sugar_g',
+              'sugar_natural_g','sugar_added_g','vitamin_c_mg','vitamin_d_iu','vitamin_k_mcg','potassium_mg','magnesium_mg','zinc_mg','selenium_mcg','iron_mg','calcium_mg','folate_mcg',
+              'notes','source']
     sets = ', '.join(f'{f}=?' for f in fields if f in d)
     vals = [d[f] for f in fields if f in d]
     if not sets:
@@ -311,6 +346,31 @@ def create_component(meal_id):
 def delete_component(meal_id, comp_id):
     db = get_db()
     db.execute('DELETE FROM meal_components WHERE id=? AND meal_id=?', (comp_id, meal_id))
+    db.commit()
+    return jsonify({'status': 'deleted'})
+
+# === Hydration Tracking ===
+@app.route('/api/hydration/<date>', methods=['GET'])
+def get_hydration(date):
+    db = get_db()
+    rows = db.execute('SELECT * FROM hydration WHERE date=? ORDER BY created_at', (date,)).fetchall()
+    total = db.execute('SELECT COALESCE(SUM(amount_ml),0) FROM hydration WHERE date=?', (date,)).fetchone()[0]
+    return jsonify({'date': date, 'total_ml': total, 'goal_ml': 2500, 'entries': [dict(r) for r in rows]})
+
+@app.route('/api/hydration', methods=['POST'])
+def add_hydration():
+    d = request.json
+    db = get_db()
+    cur = db.execute('INSERT INTO hydration (date, amount_ml, drink_type, description) VALUES (?,?,?,?)',
+        (d['date'], d['amount_ml'], d.get('drink_type', 'water'), d.get('description', '')))
+    db.commit()
+    row = db.execute('SELECT * FROM hydration WHERE id=?', (cur.lastrowid,)).fetchone()
+    return jsonify(dict(row)), 201
+
+@app.route('/api/hydration/<int:entry_id>', methods=['DELETE'])
+def delete_hydration(entry_id):
+    db = get_db()
+    db.execute('DELETE FROM hydration WHERE id=?', (entry_id,))
     db.commit()
     return jsonify({'status': 'deleted'})
 
@@ -907,7 +967,14 @@ def calc_workout_calories(active_energy_kj, avg_hr, duration_min):
 @app.route('/api/summary/<date>')
 def daily_summary(date):
     db = get_db()
-    row = db.execute('SELECT COALESCE(SUM(calories),0) as calories, COALESCE(SUM(protein_g),0) as protein_g, COALESCE(SUM(fat_g),0) as fat_g, COALESCE(SUM(carbs_g),0) as carbs_g, COALESCE(SUM(fiber_g),0) as fiber_g, COALESCE(SUM(sugar_g),0) as sugar_g, COUNT(*) as meal_count FROM meals WHERE date=?', (date,)).fetchone()
+    row = db.execute('''SELECT COALESCE(SUM(calories),0) as calories, COALESCE(SUM(protein_g),0) as protein_g,
+        COALESCE(SUM(fat_g),0) as fat_g, COALESCE(SUM(carbs_g),0) as carbs_g, COALESCE(SUM(fiber_g),0) as fiber_g,
+        COALESCE(SUM(sugar_g),0) as sugar_g, COALESCE(SUM(sugar_natural_g),0) as sugar_natural_g, COALESCE(SUM(sugar_added_g),0) as sugar_added_g,
+        COALESCE(SUM(vitamin_c_mg),0) as vitamin_c_mg, COALESCE(SUM(vitamin_d_iu),0) as vitamin_d_iu, COALESCE(SUM(vitamin_k_mcg),0) as vitamin_k_mcg,
+        COALESCE(SUM(potassium_mg),0) as potassium_mg, COALESCE(SUM(magnesium_mg),0) as magnesium_mg, COALESCE(SUM(zinc_mg),0) as zinc_mg,
+        COALESCE(SUM(selenium_mcg),0) as selenium_mcg, COALESCE(SUM(iron_mg),0) as iron_mg, COALESCE(SUM(calcium_mg),0) as calcium_mg,
+        COALESCE(SUM(folate_mcg),0) as folate_mcg,
+        COUNT(*) as meal_count FROM meals WHERE date=?''', (date,)).fetchone()
     totals = dict(row)
 
     # Workout data
@@ -933,6 +1000,30 @@ def daily_summary(date):
         elif workout_calc['zone'] <= 2:
             fat_goal = 70  # more fat ok on fat-burning days
 
+    # Hydration data
+    hydration_total = db.execute('SELECT COALESCE(SUM(amount_ml),0) FROM hydration WHERE date=?', (date,)).fetchone()[0]
+    hydration_entries = [dict(r) for r in db.execute('SELECT id, amount_ml, drink_type, description, created_at FROM hydration WHERE date=? ORDER BY created_at', (date,)).fetchall()]
+
+    # Per-meal breakdown for nutrient source analysis
+    meals_rows = db.execute('SELECT description, calories, protein_g, fat_g, carbs_g, fiber_g, sugar_g FROM meals WHERE date=? ORDER BY id', (date,)).fetchall()
+    meal_breakdown = [{'name': r['description'], 'calories': r['calories'], 'protein_g': r['protein_g'], 'fat_g': r['fat_g'], 'carbs_g': r['carbs_g'], 'fiber_g': r['fiber_g'], 'sugar_g': r['sugar_g']} for r in meals_rows]
+
+    # Micronutrient goals — therapeutic targets (prostate/cardio) where higher than DGE
+    # Format: value is optimal_min from prostate/cardio analysis, or DGE if no therapeutic target
+    dge_goals = {
+        'vitamin_c_mg': 95,      # DGE (no therapeutic target)
+        'vitamin_d_iu': 2000,    # Prostata optimal: 2000-4000 IU (DGE: 800)
+        'vitamin_k_mcg': 70,     # DGE (no therapeutic target)
+        'potassium_mg': 4000,    # DGE
+        'magnesium_mg': 350,     # DGE
+        'zinc_mg': 15,           # Prostata optimal: 15-30 mg (DGE: 10)
+        'selenium_mcg': 100,     # Prostata optimal: 100-200 mcg (DGE: 70)
+        'iron_mg': 10,           # DGE
+        'calcium_mg': 1000,      # DGE
+        'folate_mcg': 300,       # DGE
+    }
+    micro_progress = {k: round(totals.get(k, 0) / v * 100, 1) for k, v in dge_goals.items()}
+
     return jsonify({
         'date': date,
         'totals': totals,
@@ -941,6 +1032,10 @@ def daily_summary(date):
         'workout': {**workout, **workout_calc},
         'net_calories': net_calories,
         'base_goal': base_goal,
+        'meal_breakdown': meal_breakdown,
+        'hydration': {'total_ml': hydration_total, 'goal_ml': 2500, 'entries': hydration_entries},
+        'dge_goals': dge_goals,
+        'micro_progress': micro_progress,
     })
 
 @app.route('/api/summary/week/<date>')
@@ -954,6 +1049,93 @@ def weekly_summary(date):
         row = db.execute('SELECT COALESCE(SUM(calories),0) as calories, COALESCE(SUM(protein_g),0) as protein_g, COALESCE(SUM(fat_g),0) as fat_g, COALESCE(SUM(carbs_g),0) as carbs_g FROM meals WHERE date=?', (day,)).fetchone()
         days.append({'date': day, **dict(row)})
     return jsonify({'week_ending': date, 'days': days})
+
+## --- Protein Check & Daily Summary Endpoints ---
+
+PROTEIN_TARGET = 90
+
+PROTEIN_SUGGESTIONS = [
+    {"name": "Tofu gebraten (200g)", "protein_g": 22},
+    {"name": "Räucherlachs (100g)", "protein_g": 20},
+    {"name": "Griechischer Joghurt (200g)", "protein_g": 20},
+    {"name": "Linseneintopf (300g)", "protein_g": 18},
+    {"name": "Cottage Cheese (150g)", "protein_g": 18},
+    {"name": "Edamame (150g)", "protein_g": 17},
+    {"name": "Kichererbsen-Curry (300g)", "protein_g": 15},
+]
+
+@app.route('/api/protein-check/<date>')
+def protein_check(date):
+    db = get_db()
+    row = db.execute(
+        'SELECT COALESCE(SUM(protein_g), 0) as total FROM meals WHERE date = ?', (date,)
+    ).fetchone()
+    current = row['total']
+    remaining = max(0, PROTEIN_TARGET - current)
+
+    # Pick best 3 suggestions that fit the remaining gap
+    suggestions = []
+    budget = remaining
+    for item in PROTEIN_SUGGESTIONS:
+        if len(suggestions) >= 3:
+            break
+        if budget > 0:
+            suggestions.append(item)
+            budget -= item['protein_g']
+        elif remaining > 0:
+            suggestions.append(item)
+            if len(suggestions) >= 3:
+                break
+
+    # If target already met, still return 3 smallest options as maintenance suggestions
+    if remaining == 0:
+        suggestions = PROTEIN_SUGGESTIONS[-3:]
+
+    return jsonify({
+        'date': date,
+        'current_protein_g': current,
+        'target_protein_g': PROTEIN_TARGET,
+        'remaining_g': remaining,
+        'suggestions': suggestions
+    })
+
+
+@app.route('/api/daily-summary/<date>')
+def daily_summary_v2(date):
+    db = get_db()
+    rows = db.execute('SELECT * FROM meals WHERE date = ?', (date,)).fetchall()
+
+    totals = {'calories': 0, 'protein_g': 0, 'fat_g': 0, 'carbs_g': 0, 'sugar_g': 0, 'fiber_g': 0}
+    meal_types = set()
+    for r in rows:
+        for k in totals:
+            totals[k] += (r[k] or 0)
+        if r['meal_type']:
+            meal_types.add(r['meal_type'])
+
+    protein = totals['protein_g']
+    if protein >= PROTEIN_TARGET:
+        protein_status = 'exceeded' if protein > PROTEIN_TARGET * 1.1 else 'on track'
+    else:
+        protein_status = 'needs more'
+
+    return jsonify({
+        'date': date,
+        'meal_count': len(rows),
+        'meal_types': sorted(meal_types),
+        'totals': totals,
+        'protein_status': protein_status,
+        'protein_target_g': PROTEIN_TARGET
+    })
+
+
+@app.route('/api/weekly-report')
+def api_weekly_report():
+    """Return weekly nutrition report data as JSON."""
+    days = request.args.get('days', 7, type=int)
+    from weekly_report import compute_report
+    return jsonify(compute_report(days))
+
 
 if __name__ == '__main__':
     init_db()

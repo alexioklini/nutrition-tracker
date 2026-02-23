@@ -23,6 +23,17 @@ canvas{max-height:220px}
   <button class="btn btn-sm btn-primary ms-2" onclick="showAddModal()">+ Mahlzeit</button></div>
 </div>
 
+<!-- Recommendations -->
+<div id="recsCard" class="card p-3 mb-3" style="border-color:#238636;display:none">
+  <div class="d-flex justify-content-between align-items-center mb-2" style="cursor:pointer" onclick="toggleAcc('recsBody')">
+    <h6 class="mb-0">💡 Empfehlungen für den Rest des Tages <span id="recsBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
+    <span id="recsSummary" class="text-muted" style="font-size:0.85rem"></span>
+  </div>
+  <div id="recsBody">
+    <div id="recsContent"></div>
+  </div>
+</div>
+
 <!-- Summary -->
 <div class="card p-3 mb-3">
   <div class="d-flex justify-content-between mb-1"><strong>Kalorien</strong><span id="calText">0 / 2025 kcal</span></div>
@@ -114,12 +125,53 @@ canvas{max-height:220px}
   </div>
 </div>
 
+<!-- Hydration -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h6 class="mb-0">💧 Flüssigkeit</h6>
+    <div class="d-flex gap-1">
+      <button class="btn btn-sm btn-outline-info" onclick="addQuickWater(250)" title="Glas Wasser">+250ml</button>
+      <button class="btn btn-sm btn-outline-info" onclick="addQuickWater(500)" title="Flasche">+500ml</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="showHydrationModal()">+Andere</button>
+    </div>
+  </div>
+  <div id="hydrationDisplay"></div>
+</div>
+
+<!-- Hydration Modal -->
+<div class="modal fade" id="hydrationModal" tabindex="-1"><div class="modal-dialog modal-sm"><div class="modal-content" style="background:#161b22">
+<div class="modal-header border-secondary"><h5 class="modal-title">💧 Getränk hinzufügen</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">
+  <select id="hType" class="form-select form-select-sm mb-2">
+    <option value="water">Wasser</option>
+    <option value="tea">Tee</option>
+    <option value="coffee">Kaffee</option>
+    <option value="juice">Saft</option>
+    <option value="other">Andere</option>
+  </select>
+  <input id="hAmount" type="number" class="form-control form-control-sm mb-2" placeholder="Menge (ml)" value="250">
+  <input id="hDesc" class="form-control form-control-sm mb-2" placeholder="Beschreibung (optional)">
+  <button class="btn btn-info btn-sm w-100" onclick="addHydration()">Hinzufügen</button>
+</div>
+</div></div></div>
+
 <!-- Nährwert-Analyse -->
 <div class="card p-3 mb-3">
   <h6 style="cursor:pointer" onclick="toggleAcc('nutriBody')">🔬 Nährwert-Analyse <span id="nutriBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
   <div id="macroDistDisplay"></div>
   <div id="nutriBody" style="display:none">
     <div id="nutriAnalysis"></div>
+  </div>
+</div>
+
+<!-- Mikronährstoffe -->
+<div class="card p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center" style="cursor:pointer" onclick="toggleAcc('microBody')">
+    <h6 class="mb-0">🧬 Mikronährstoffe <span id="microBody-icon" style="transition:transform 0.2s;display:inline-block;font-size:0.8rem">▼</span></h6>
+    <span id="microSummary" class="text-muted" style="font-size:0.85rem"></span>
+  </div>
+  <div id="microBody" style="display:none">
+    <div id="microBars" class="mt-2"></div>
   </div>
 </div>
 
@@ -146,8 +198,30 @@ canvas{max-height:220px}
 <div class="row g-2 mb-2">
   <div class="col-4"><input id="mCarbs" type="number" step="any" class="form-control form-control-sm" placeholder="KH (g)"></div>
   <div class="col-4"><input id="mFiber" type="number" step="any" class="form-control form-control-sm" placeholder="Ballast. (g)"></div>
-  <div class="col-4"><input id="mSugar" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker (g)"></div>
+  <div class="col-4"><input id="mSugar" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker ges. (g)"></div>
 </div>
+<div class="row g-2 mb-2">
+  <div class="col-6"><input id="mSugarNat" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker natürlich (g)"></div>
+  <div class="col-6"><input id="mSugarAdd" type="number" step="any" class="form-control form-control-sm" placeholder="Zucker zugesetzt (g)"></div>
+</div>
+<details class="mb-2"><summary class="text-muted" style="font-size:0.8rem;cursor:pointer">🧬 Mikronährstoffe (optional)</summary>
+<div class="row g-2 mt-1">
+  <div class="col-4"><input id="mVitC" type="number" step="any" class="form-control form-control-sm" placeholder="Vit C (mg)"></div>
+  <div class="col-4"><input id="mVitD" type="number" step="any" class="form-control form-control-sm" placeholder="Vit D (IU)"></div>
+  <div class="col-4"><input id="mVitK" type="number" step="any" class="form-control form-control-sm" placeholder="Vit K (mcg)"></div>
+</div>
+<div class="row g-2 mt-1">
+  <div class="col-3"><input id="mPotassium" type="number" step="any" class="form-control form-control-sm" placeholder="Kalium (mg)"></div>
+  <div class="col-3"><input id="mMagnesium" type="number" step="any" class="form-control form-control-sm" placeholder="Mg (mg)"></div>
+  <div class="col-3"><input id="mZinc" type="number" step="any" class="form-control form-control-sm" placeholder="Zink (mg)"></div>
+  <div class="col-3"><input id="mSelenium" type="number" step="any" class="form-control form-control-sm" placeholder="Selen (mcg)"></div>
+</div>
+<div class="row g-2 mt-1">
+  <div class="col-4"><input id="mIron" type="number" step="any" class="form-control form-control-sm" placeholder="Eisen (mg)"></div>
+  <div class="col-4"><input id="mCalcium" type="number" step="any" class="form-control form-control-sm" placeholder="Calcium (mg)"></div>
+  <div class="col-4"><input id="mFolate" type="number" step="any" class="form-control form-control-sm" placeholder="Folsäure (mcg)"></div>
+</div>
+</details>
 <input id="mNotes" class="form-control form-control-sm mb-2" placeholder="Notizen">
 <div id="componentsSection">
   <hr class="border-secondary my-2">
@@ -177,9 +251,20 @@ async function loadAll() {
     fetch(`${API}/api/summary/${currentDate}`).then(r=>r.json()),
     fetch(`${API}/api/summary/week/${currentDate}`).then(r=>r.json())
   ]);
+  window._allMeals = meals;
+  // Also fetch prostate + cardio analysis for recommendations
+  const [prostate, cardio] = await Promise.all([
+    fetch(`${API}/api/prostate-analysis/${currentDate}`).then(r=>r.json()).catch(()=>({})),
+    fetch(`${API}/api/cardio-analysis/${currentDate}`).then(r=>r.json()).catch(()=>({})),
+  ]);
+  window._prostateData = prostate;
+  window._cardioData = cardio;
   renderSummary(summary);
   renderMeals(meals);
   renderNutriAnalysis(summary);
+  renderHydration(summary.hydration);
+  renderMicronutrients(summary);
+  renderRecommendations(summary);
   renderWeek(week);
 }
 
@@ -386,6 +471,10 @@ function renderNutriAnalysis(s) {
       </div>
     </div>`;
 
+  // Meal breakdown data for nutrient sources
+  const mealBreakdown = s.meal_breakdown || [];
+  const nutrientKeyMap = {'Kalorien':'calories','Protein':'protein_g','Fett':'fat_g','Kohlenhydrate':'carbs_g','Ballaststoffe':'fiber_g','Zucker':'sugar_g'};
+
   const rows = targets.map(({name, unit, val, min, max, goal, icon, note, invert}) => {
     const pct = Math.min(Math.round(val / goal * 100), 150);
     let status, color, badge;
@@ -401,24 +490,485 @@ function renderNutriAnalysis(s) {
       badge = ok ? 'Optimal' : low ? 'Zu niedrig' : 'Zu hoch';
     }
     const barPct = Math.min(pct, 100);
+
+    // Build per-meal breakdown for this nutrient
+    const key = nutrientKeyMap[name];
+    let breakdownHTML = '';
+    if (key && mealBreakdown.length > 0) {
+      const sorted = mealBreakdown.filter(m => m[key] > 0).sort((a,b) => b[key] - a[key]);
+      if (sorted.length > 0) {
+        const totalVal = val || 1;
+        breakdownHTML = `<div class="nutrient-sources" id="src-${key}" style="display:none;margin-top:4px;padding:6px 8px;background:#0d1117;border-radius:6px;font-size:0.8rem">
+          ${sorted.map(m => {
+            const mVal = Math.round(m[key]*10)/10;
+            const mPct = Math.round(m[key]/totalVal*100);
+            return `<div class="d-flex justify-content-between align-items-center mb-1">
+              <span class="text-muted" style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${m.name}</span>
+              <span><strong>${mVal}${unit}</strong> <small class="text-muted">(${mPct}%)</small></span>
+            </div>
+            <div class="progress mb-1" style="height:4px;background:#21262d"><div class="progress-bar" style="width:${mPct}%;background:${color};opacity:0.7"></div></div>`;
+          }).join('')}
+        </div>`;
+      }
+    }
+
+    const toggleAttr = breakdownHTML ? `style="cursor:pointer" onclick="let el=document.getElementById('src-${key}');el.style.display=el.style.display==='none'?'block':'none'"` : '';
+    const expandHint = breakdownHTML ? ' <small class="text-muted" style="font-size:0.7rem">▶ Details</small>' : '';
+
     return `
       <div class="mb-2">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span>${icon} <strong>${name}</strong>${note ? ' <small class="text-muted">· '+note+'</small>' : ''}</span>
+        <div class="d-flex justify-content-between align-items-center mb-1" ${toggleAttr}>
+          <span>${icon} <strong>${name}</strong>${expandHint}${note ? ' <small class="text-muted">· '+note+'</small>' : ''}</span>
           <span>${status} <strong style="color:${color}">${Math.round(val*10)/10}${unit}</strong> <small class="text-muted">/ Ziel ${goal}${unit}</small> <span class="badge ms-1" style="background:${color};color:#000;font-size:0.7rem">${badge}</span></span>
         </div>
         <div class="progress" style="height:8px;background:#21262d">
           <div class="progress-bar" style="width:${barPct}%;background:${color}"></div>
         </div>
         <div class="d-flex justify-content-between mt-1"><small class="text-muted">Min ${min}${unit}</small><small class="text-muted">Max ${max}${unit}</small></div>
+        ${breakdownHTML}
       </div>`;
   }).join('');
 
   // Zuckerwarnung
   const sugarWarn = t.sugar_g > 50 ? `<div class="alert alert-warning py-2 mt-2" style="font-size:0.85rem">⚠️ <strong>Zucker:</strong> ${Math.round(t.sugar_g)}g heute — deutlich über dem Tagesziel von 50g. Großteils aus Granatapfelsaft und Früchten (natürlicher Zucker).</div>` : '';
 
+  const sugarSplitHTML = renderSugarSplit(s);
   document.getElementById('macroDistDisplay').innerHTML = macroDistHTML;
-  document.getElementById('nutriAnalysis').innerHTML = rows + sugarWarn;
+  document.getElementById('nutriAnalysis').innerHTML = rows + sugarSplitHTML + sugarWarn;
+}
+
+// === Empfehlungen ===
+function renderRecommendations(summary) {
+  const t = summary.totals || {};
+  const goals = summary.dge_goals || {};
+  const prog = summary.micro_progress || {};
+  const calProg = summary.progress?.calories || 0;
+  const calGoal = summary.goals?.calories || 2000;
+  const calLeft = Math.max(0, calGoal - (t.calories || 0));
+  const hydration = summary.hydration || {};
+  const hydGoal = 2500;
+  const hydTotal = hydration.total_ml || 0;
+  const hydLeft = Math.max(0, hydGoal - hydTotal);
+
+  // Expected daily supplement contribution (even if not yet logged)
+  // These are taken with meals throughout the day
+  const suppExpected = {
+    zinc_mg: 30,        // Zink 30 Picolinat
+    selenium_mcg: 90,   // Selamin
+    vitamin_d_iu: 800,  // Curcumin-Loges
+    // Omega-3 only Fri-Sun
+  };
+  // Note: goals from API already use therapeutic targets (prostate/cardio)
+  // zinc_mg: 15 (prostata), selenium_mcg: 100 (prostata), vitamin_d_iu: 2000 (prostata)
+  // Check what supplements are already logged today
+  const suppLogged = (window._allMeals || []).filter(m => m.meal_type === 'supplement');
+  const suppAlreadyLogged = {};
+  for (const m of suppLogged) {
+    for (const k of Object.keys(suppExpected)) {
+      suppAlreadyLogged[k] = (suppAlreadyLogged[k] || 0) + (m[k] || 0);
+    }
+  }
+  // Calculate what supplements will still add (not yet taken)
+  const suppPending = {};
+  for (const [k, v] of Object.entries(suppExpected)) {
+    suppPending[k] = Math.max(0, v - (suppAlreadyLogged[k] || 0));
+  }
+  // Effective totals = current + pending supplements
+  const effective = {...t};
+  for (const [k, v] of Object.entries(suppPending)) {
+    effective[k] = (effective[k] || 0) + v;
+  }
+  // Effective progress
+  const effProg = {};
+  for (const k of Object.keys(goals)) {
+    effProg[k] = Math.round((effective[k] || 0) / (goals[k] || 1) * 100);
+  }
+
+  // Food knowledge base with cross-nutrient profile per food
+  // Each food has its primary nutrient (val) plus other nutrients it contains (also)
+  const foodDB = {
+    vitamin_k_mcg: [
+      {name:'Spinat (80g gekocht)',val:444,emoji:'🥬', also:{potassium_mg:420,magnesium_mg:63,iron_mg:2.7,folate_mcg:130,calcium_mg:100,vitamin_c_mg:14}},
+      {name:'Brokkoli (100g)',val:140,emoji:'🥦', also:{vitamin_c_mg:65,calcium_mg:47,potassium_mg:316,folate_mcg:63}},
+      {name:'Salatmischung (100g)',val:100,emoji:'🥗', also:{folate_mcg:30,vitamin_c_mg:12}},
+      {name:'Rosenkohl (100g)',val:140,emoji:'🥬', also:{vitamin_c_mg:85,potassium_mg:389,folate_mcg:61}},
+    ],
+    calcium_mg: [
+      {name:'Mineralwasser 0.5L (Römerquelle)',val:73,emoji:'💧', also:{magnesium_mg:27}},
+      {name:'Sojamilch 200ml (angereichert)',val:240,emoji:'🥛', also:{vitamin_d_iu:40}},
+      {name:'Sesam (2 EL, 20g)',val:176,emoji:'🌱', also:{iron_mg:2.9,zinc_mg:1.5,magnesium_mg:70}},
+      {name:'Feigen getrocknet (50g)',val:80,emoji:'🍇', also:{potassium_mg:340,magnesium_mg:34,iron_mg:1}},
+      {name:'Brokkoli (100g)',val:47,emoji:'🥦', also:{vitamin_c_mg:65,vitamin_k_mcg:140,folate_mcg:63}},
+    ],
+    magnesium_mg: [
+      {name:'Mineralwasser 0.5L (Römerquelle)',val:27,emoji:'💧', also:{calcium_mg:73}},
+      {name:'Kürbiskerne (30g)',val:156,emoji:'🎃', also:{zinc_mg:2.1,iron_mg:2.5}},
+      {name:'Cashews (30g)',val:83,emoji:'🥜', also:{zinc_mg:1.7,iron_mg:1.9}},
+      {name:'Spinat (80g)',val:63,emoji:'🥬', also:{vitamin_k_mcg:444,iron_mg:2.7,potassium_mg:420,folate_mcg:130}},
+      {name:'Edamame (100g)',val:64,emoji:'🫛', also:{protein_g:11,iron_mg:2.3,folate_mcg:303,potassium_mg:436}},
+    ],
+    potassium_mg: [
+      {name:'Kartoffel (200g)',val:900,emoji:'🥔', also:{vitamin_c_mg:40,magnesium_mg:46,iron_mg:1.6}},
+      {name:'Avocado (1/2)',val:485,emoji:'🥑', also:{magnesium_mg:29,folate_mcg:81,vitamin_k_mcg:21}},
+      {name:'Spinat (80g)',val:420,emoji:'🥬', also:{vitamin_k_mcg:444,magnesium_mg:63,iron_mg:2.7,folate_mcg:130}},
+      {name:'Banane',val:422,emoji:'🍌', also:{magnesium_mg:32,vitamin_c_mg:10}},
+      {name:'Tomatenmark (2 EL)',val:300,emoji:'🍅', also:{iron_mg:1,vitamin_k_mcg:3}},
+    ],
+    folate_mcg: [
+      {name:'Edamame (100g)',val:303,emoji:'🫛', also:{magnesium_mg:64,iron_mg:2.3,potassium_mg:436}},
+      {name:'Spinat (80g)',val:130,emoji:'🥬', also:{vitamin_k_mcg:444,magnesium_mg:63,iron_mg:2.7,potassium_mg:420}},
+      {name:'Linsen (100g gekocht)',val:181,emoji:'🫘', also:{iron_mg:3.3,potassium_mg:369}},
+      {name:'Kichererbsen (100g)',val:172,emoji:'🫘', also:{iron_mg:2.9,zinc_mg:1.5,magnesium_mg:48}},
+    ],
+    iron_mg: [
+      {name:'Linsen (100g gekocht)',val:3.3,emoji:'🫘', also:{folate_mcg:181,potassium_mg:369}},
+      {name:'Spinat (80g)',val:2.7,emoji:'🥬', also:{vitamin_k_mcg:444,magnesium_mg:63,potassium_mg:420,folate_mcg:130}},
+      {name:'Sesam (2 EL, 20g)',val:2.9,emoji:'🌱', also:{calcium_mg:176,zinc_mg:1.5,magnesium_mg:70}},
+      {name:'Haferflocken (50g)',val:2.3,emoji:'🥣', also:{magnesium_mg:69,zinc_mg:1.6}},
+    ],
+    vitamin_c_mg: [
+      {name:'Paprika rot (100g)',val:128,emoji:'🫑', also:{potassium_mg:175,folate_mcg:10}},
+      {name:'Kiwi',val:71,emoji:'🥝', also:{potassium_mg:252,vitamin_k_mcg:40}},
+      {name:'Rosenkohl (100g)',val:85,emoji:'🥬', also:{vitamin_k_mcg:140,potassium_mg:389,folate_mcg:61}},
+    ],
+    vitamin_d_iu: [
+      {name:'Lachs (100g)',val:570,emoji:'🐟', also:{selenium_mcg:25,potassium_mg:363}},
+      {name:'Champignons UV (100g)',val:400,emoji:'🍄', also:{selenium_mcg:9,potassium_mg:318}},
+      {name:'Hering (100g)',val:216,emoji:'🐟', also:{selenium_mcg:37}},
+    ],
+    zinc_mg: [
+      {name:'Kürbiskerne (30g)',val:2.1,emoji:'🎃', also:{magnesium_mg:156,iron_mg:2.5}},
+      {name:'Cashews (30g)',val:1.7,emoji:'🥜', also:{magnesium_mg:83,iron_mg:1.9}},
+      {name:'Linsen (100g)',val:1.3,emoji:'🫘', also:{iron_mg:3.3,folate_mcg:181}},
+    ],
+    selenium_mcg: [
+      {name:'Paranüsse (2 Stück)',val:137,emoji:'🥜', also:{magnesium_mg:56,zinc_mg:1.2}},
+      {name:'Lachs (100g)',val:25,emoji:'🐟', also:{vitamin_d_iu:570,potassium_mg:363}},
+    ],
+  };
+
+  // Helper: check if a food would worsen any already-exceeded nutrient
+  function foodConflicts(food, targetKey) {
+    const conflicts = [];
+    const alsoNutrients = food.also || {};
+    for (const [k, addVal] of Object.entries(alsoNutrients)) {
+      if (k === targetKey) continue;
+      const currentPct = effProg[k] || 0;
+      if (currentPct >= 150) {
+        // Already well over — would this food add significantly? (>10% of goal)
+        const goalVal = goals[k] || 1;
+        const addPct = (addVal / goalVal) * 100;
+        if (addPct > 10) {
+          conflicts.push({key: k, name: labels[k]?.[0] || k, addPct: Math.round(addPct)});
+        }
+      }
+    }
+    return conflicts;
+  }
+
+  let avoidHTML = '';
+  let drinkHTML = '';
+  let deficits = 0;
+  let excesses = 0;
+
+  // Collect ALL recommendations into a single priority-sorted list
+  // Priority: lower % = more urgent. Category is just a tag, not a group.
+  const allRecs = []; // {pct, category, html, isDeficit}
+
+  const labels = {
+    vitamin_c_mg:['Vitamin C','mg'], vitamin_d_iu:['Vitamin D','IU'], vitamin_k_mcg:['Vitamin K','mcg'],
+    potassium_mg:['Kalium','mg'], magnesium_mg:['Magnesium','mg'], zinc_mg:['Zink','mg'],
+    selenium_mcg:['Selen','mcg'], iron_mg:['Eisen','mg'], calcium_mg:['Calcium','mg'], folate_mcg:['Folsäure','mcg']
+  };
+
+  // Deficits (<80% DGE) — use effective values (incl. pending supplements)
+  for (const [key, [name, unit]] of Object.entries(labels)) {
+    const pctNow = prog[key] || 0;
+    const pctEff = effProg[key] || 0;
+    const valEff = effective[key] || 0;
+    const goal = goals[key] || 1;
+    const missing = goal - valEff;
+    const hasPendingSupp = (suppPending[key] || 0) > 0;
+
+    if (pctEff < 80 && missing > 0) {
+      deficits++;
+      const foods = foodDB[key] || [];
+      const safeFoods = [];
+      const conflictFoods = [];
+      for (const f of foods) {
+        const conflicts = foodConflicts(f, key);
+        if (conflicts.length === 0) safeFoods.push(f);
+        else conflictFoods.push({...f, conflicts});
+      }
+      const picks = safeFoods.slice(0, 2);
+      if (picks.length < 2 && conflictFoods.length > 0) picks.push(conflictFoods[0]);
+      if (picks.length > 0) {
+        const suggestions = picks.map(f => {
+          const base = `${f.emoji} ${f.name} <small class="text-muted">(+${f.val}${unit})</small>`;
+          if (f.conflicts && f.conflicts.length > 0) return `${base} <small style="color:#f85149">⚠️ erhöht ${f.conflicts.map(c=>c.name).join(', ')}</small>`;
+          return base;
+        }).join(' · ');
+        const suppNote = hasPendingSupp ? ` <small class="text-muted">(mit Suppl.: ~${Math.round(pctEff)}%)</small>` : '';
+        allRecs.push({pct: pctEff, cat:'🧬', name, tip: `fehlen ~${Math.round(missing)}${unit} → ${suggestions}`});
+      }
+    } else if (pctEff >= 80 && pctEff < 100) {
+      const foods = foodDB[key] || [];
+      if (foods.length > 0 && !hasPendingSupp) {
+        const safe = foods.find(f => foodConflicts(f, key).length === 0) || foods[0];
+        const conflicts = foodConflicts(safe, key);
+        const warn = conflicts.length > 0 ? ` ⚠️ erhöht ${conflicts.map(c=>c.name).join(', ')}` : '';
+        allRecs.push({pct: pctEff, cat:'🧬', name, tip: `fast da! ${safe.emoji} ${safe.name} reicht${warn}`});
+      } else if (hasPendingSupp) {
+        allRecs.push({pct: pctEff, cat:'💊', name, tip: `${Math.round(pctNow)}% → ~${Math.round(pctEff)}% mit Supplements ✅`});
+      }
+    } else if (pctEff >= 100 && pctNow < 80 && hasPendingSupp) {
+      allRecs.push({pct: pctEff, cat:'💊', name, tip: `${Math.round(pctNow)}% → ~${Math.round(pctEff)}% mit Supplements — keine Extra-Nahrung nötig`});
+    }
+
+    if (pctEff > 300) {
+      excesses++;
+      avoidHTML += `<div class="mb-1"><span style="color:#f85149">🔴 ${name}: ${Math.round(pctEff)}%</span> — stark überschritten, keine weiteren ${name}-reichen Lebensmittel nötig</div>`;
+    }
+  }
+
+  // Macro limits — sugar & fat warnings
+  const sugarTotal = t.sugar_g || 0;
+  const sugarAdded = t.sugar_added_g || 0;
+  if (sugarAdded > 25) {
+    excesses++;
+    avoidHTML += `<div class="mb-1"><span style="color:#f85149">🔴 Zugesetzter Zucker: ${Math.round(sugarAdded)}g</span> — WHO-Limit (25g) überschritten!</div>`;
+  } else if (sugarTotal > 50) {
+    avoidHTML += `<div class="mb-1"><span style="color:#ffc107">🟡 Gesamt-Zucker: ${Math.round(sugarTotal)}g</span> — bereits hoch, Obst-Zucker bewusst dosieren</div>`;
+  }
+
+  const satfat = t.saturated_fat_g || 0;
+  if (satfat > 20) {
+    avoidHTML += `<div class="mb-1"><span style="color:#f85149">🔴 Gesättigtes Fett: ${Math.round(satfat)}g</span> — DGE max ~20g</div>`;
+  }
+
+  // Hydration
+  if (hydLeft > 500) {
+    drinkHTML += `<div class="mb-1">💧 Noch <strong>${Math.round(hydLeft)}ml</strong> trinken (${Math.round(hydLeft/250)} Gläser)</div>`;
+    // Suggest mineral water for calcium/magnesium
+    const caPct = prog.calcium_mg || 0;
+    const mgPct = prog.magnesium_mg || 0;
+    if (caPct < 100 || mgPct < 100) {
+      drinkHTML += `<div class="mb-1">💧 Tipp: <strong>Mineralwasser</strong> (Römerquelle) deckt auch Calcium + Magnesium ab!</div>`;
+    }
+  } else if (hydLeft > 0) {
+    drinkHTML += `<div class="mb-1">💧 Fast geschafft! Noch <strong>${Math.round(hydLeft)}ml</strong> (${Math.ceil(hydLeft/250)} Glas)</div>`;
+  }
+  // If hydration goal reached → don't show the section at all
+
+  // === Prostata & Herz-Kreislauf Substanzen ===
+  const prostate = window._prostateData || {};
+  const cardio = window._cardioData || {};
+
+  const substanceFoods = {
+    'lycopin_mg': [{name:'Tomatenmark (2 EL)',emoji:'🍅'},{name:'Tomaten gekocht (200g)',emoji:'🍅'}],
+    'vitamin_d_iu': [{name:'Lachs (100g)',emoji:'🐟'},{name:'Champignons UV (100g)',emoji:'🍄'}],
+    'omega3_epa_dha_mg': [{name:'Lachs (100g, ~2000mg)',emoji:'🐟'},{name:'Hering (100g, ~1700mg)',emoji:'🐟'}],
+    'punicalagin_mg': [{name:'Granatapfelsaft (250ml)',emoji:'🍷'}],
+    'caffeine_mg': [{name:'Grüner Tee (Tasse)',emoji:'🍵'},{name:'Kaffee (Tasse)',emoji:'☕'}],
+  };
+
+  for (const sub of (prostate.substances || [])) {
+    const pct = Math.round(sub.total / sub.optimal_min * 100);
+    if (sub.status === 'low' || pct < 80) {
+      deficits++;
+      const missing = sub.optimal_min - sub.total;
+      const foods = substanceFoods[sub.key] || [];
+      const foodTip = foods.length > 0 ? ` → ${foods.map(f => `${f.emoji} ${f.name}`).join(', ')}` : '';
+      allRecs.push({pct, cat:'🎯', name: sub.name, tip: `${Math.round(sub.total)}/${sub.optimal_min} ${sub.unit} — fehlen ~${Math.round(missing)} ${sub.unit}${foodTip}`, html:''});
+    } else if (sub.status === 'high') {
+      const overBy = sub.total - sub.optimal_max;
+      if (overBy > 0) {
+        excesses++;
+        avoidHTML += `<div class="mb-1"><span style="color:#ffc107">🟡 ${sub.name}: ${Math.round(sub.total)} ${sub.unit}</span> — über Optimal (${sub.optimal_min}-${sub.optimal_max}), nicht weiter erhöhen</div>`;
+      }
+    }
+  }
+
+  const prostateKeys = new Set((prostate.substances || []).map(s => s.key));
+  for (const sub of (cardio.substances || [])) {
+    if (prostateKeys.has(sub.key)) continue;
+    const pct = Math.round(sub.total / sub.optimal_min * 100);
+    if (sub.status === 'low' || pct < 80) {
+      deficits++;
+      const missing = sub.optimal_min - sub.total;
+      allRecs.push({pct, cat:'❤️', name: sub.name, tip: `${Math.round(sub.total)}/${sub.optimal_min} ${sub.unit} — fehlen ~${Math.round(missing)} ${sub.unit}`, html:''});
+    } else if (sub.status === 'high') {
+      const overBy = sub.total - sub.optimal_max;
+      if (overBy > 0 && !avoidHTML.includes(sub.name)) {
+        excesses++;
+        avoidHTML += `<div class="mb-1"><span style="color:#ffc107">🟡 ${sub.name}: ${Math.round(sub.total)} ${sub.unit}</span> — über Optimal (${sub.optimal_min}-${sub.optimal_max})</div>`;
+      }
+    }
+  }
+
+  // === Makronährstoffe ===
+  const goals_macro = summary.goals || {};
+  const protPct = Math.round((t.protein_g || 0) / (goals_macro.protein_g || 100) * 100);
+  const fiberPct = Math.round((t.fiber_g || 0) / (goals_macro.fiber_g || 30) * 100);
+
+  if (protPct < 80) {
+    deficits++;
+    const protLeft = (goals_macro.protein_g || 100) - (t.protein_g || 0);
+    allRecs.push({pct: protPct, cat:'🍽️', name: 'Protein', tip: `noch ~${Math.round(protLeft)}g → Linsen, Tofu, Edamame, Lachs`});
+  }
+  if (fiberPct < 80) {
+    deficits++;
+    const fiberLeft = (goals_macro.fiber_g || 30) - (t.fiber_g || 0);
+    allRecs.push({pct: fiberPct, cat:'🍽️', name: 'Ballaststoffe', tip: `noch ~${Math.round(fiberLeft)}g → Vollkorn, Hülsenfrüchte, Gemüse`});
+  }
+  if (calLeft > 0 && calLeft < 500) {
+    allRecs.push({pct: 90, cat:'🍽️', name: 'Kalorien', tip: `noch ${Math.round(calLeft)} kcal — leichter Snack reicht`});
+  } else if (calLeft >= 500) {
+    allRecs.push({pct: 50, cat:'🍽️', name: 'Kalorien', tip: `noch ${Math.round(calLeft)} kcal — eine vollwertige Mahlzeit passt noch`});
+  } else if (calLeft <= 0) {
+    avoidHTML += `<div class="mb-1"><span style="color:#ffc107">🟡 Kalorienziel erreicht (${Math.round(t.calories)} / ${calGoal} kcal)</span></div>`;
+  }
+
+  // Sort all recommendations by priority (lowest % = most urgent first)
+  allRecs.sort((a, b) => a.pct - b.pct);
+
+  // Build accordions — all collapsed by default
+  let html = '';
+
+  if (allRecs.length === 0 && !avoidHTML && hydLeft <= 0) {
+    html = `<div class="text-center" style="color:#3fb950;font-size:1.1rem">✅ Alles im grünen Bereich! Perfekter Tag.</div>`;
+  } else {
+    // Count items per section for summary badges
+    const deficitCount = allRecs.filter(r => r.pct < 80).length;
+    const nearCount = allRecs.filter(r => r.pct >= 80).length;
+
+    const urgentRecs = allRecs.filter(r => r.pct < 80);
+    const nearRecs = allRecs.filter(r => r.pct >= 80);
+
+    // Helper: render a rec row as compact card-style
+    function recRow(r) {
+      const barColor = r.pct < 50 ? '#f85149' : r.pct < 80 ? '#f0883e' : r.pct < 100 ? '#58a6ff' : '#3fb950';
+      const barW = Math.min(r.pct, 100);
+      return `<div class="d-flex align-items-center px-3 py-2" style="border-bottom:1px solid rgba(255,255,255,0.04)">
+        <span style="font-size:0.75rem;width:24px;flex-shrink:0">${r.cat}</span>
+        <div style="flex:1;min-width:0">
+          <div class="d-flex justify-content-between align-items-center">
+            <span style="font-size:0.85rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</span>
+            <span style="font-size:0.82rem;white-space:nowrap;margin-left:8px"><strong style="color:${barColor}">${Math.round(r.pct)}%</strong></span>
+          </div>
+          <div class="progress mt-1" style="height:4px;background:#21262d"><div class="progress-bar" style="width:${barW}%;background:${barColor}"></div></div>
+          <div style="font-size:0.78rem;color:#8b949e;margin-top:2px">${r.tip}</div>
+        </div>
+      </div>`;
+    }
+
+    if (urgentRecs.length > 0) {
+      html += `<div class="meal-card mb-2 p-0" style="overflow:hidden;border-color:#f0883e">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="cursor:pointer" onclick="toggleAcc('recImprove')">
+          <div><strong style="color:#f0883e">📋 Heute noch verbessern</strong> <span class="text-muted ms-2" style="font-size:0.85rem">${urgentRecs.length} Lücken</span></div>
+          <span id="recImprove-icon" style="transition:transform 0.2s">▼</span>
+        </div>
+        <div id="recImprove" style="display:none;border-top:1px solid rgba(255,255,255,0.08)">${urgentRecs.map(recRow).join('')}</div>
+      </div>`;
+    }
+
+    if (nearRecs.length > 0) {
+      html += `<div class="meal-card mb-2 p-0" style="overflow:hidden;border-color:#58a6ff">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="cursor:pointer" onclick="toggleAcc('recNear')">
+          <div><strong style="color:#58a6ff">🔵 Fast da</strong> <span class="text-muted ms-2" style="font-size:0.85rem">${nearRecs.length} Einträge</span></div>
+          <span id="recNear-icon" style="transition:transform 0.2s">▼</span>
+        </div>
+        <div id="recNear" style="display:none;border-top:1px solid rgba(255,255,255,0.08)">${nearRecs.map(recRow).join('')}</div>
+      </div>`;
+    }
+
+    if (drinkHTML) {
+      html += `<div class="meal-card mb-2 p-0" style="overflow:hidden;border-color:#58a6ff">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="cursor:pointer" onclick="toggleAcc('recDrink')">
+          <div><strong style="color:#58a6ff">🚰 Flüssigkeit</strong> <span class="text-muted ms-2" style="font-size:0.85rem">${hydLeft > 0 ? Math.round(hydLeft)+'ml übrig' : '✅ erreicht'}</span></div>
+          <span id="recDrink-icon" style="transition:transform 0.2s">▼</span>
+        </div>
+        <div id="recDrink" style="display:none;border-top:1px solid rgba(255,255,255,0.08)">
+          <div class="px-3 py-2" style="font-size:0.85rem">${drinkHTML}</div>
+        </div>
+      </div>`;
+    }
+
+    if (avoidHTML) {
+      html += `<div class="meal-card mb-2 p-0" style="overflow:hidden;border-color:#f85149">
+        <div class="d-flex justify-content-between align-items-center px-3 py-2" style="cursor:pointer" onclick="toggleAcc('recAvoid')">
+          <div><strong style="color:#f85149">⛔ Genug davon</strong> <span class="text-muted ms-2" style="font-size:0.85rem">${excesses} Überschreitungen</span></div>
+          <span id="recAvoid-icon" style="transition:transform 0.2s">▼</span>
+        </div>
+        <div id="recAvoid" style="display:none;border-top:1px solid rgba(255,255,255,0.08)">
+          <div class="px-3 py-2" style="font-size:0.85rem">${avoidHTML}</div>
+        </div>
+      </div>`;
+    }
+  }
+
+  document.getElementById('recsContent').innerHTML = html;
+  document.getElementById('recsCard').style.display = '';
+  document.getElementById('recsSummary').textContent = `${deficits} Lücken · ${excesses} Überschreitungen`;
+}
+
+// === Hydration ===
+function renderHydration(h) {
+  if (!h) { document.getElementById('hydrationDisplay').innerHTML = ''; return; }
+  const pct = Math.min(Math.round(h.total_ml / h.goal_ml * 100), 100);
+  const color = pct >= 80 ? '#3fb950' : pct >= 50 ? '#ffc107' : '#58a6ff';
+  const status = pct >= 100 ? '✅' : pct >= 80 ? '🔵' : '⚠️';
+  const liters = (h.total_ml / 1000).toFixed(1);
+  const goalL = (h.goal_ml / 1000).toFixed(1);
+  const entries = h.entries || [];
+  const typeIcons = {water:'💧',tea:'🍵',coffee:'☕',juice:'🧃',other:'🥤'};
+  const entriesHTML = entries.length > 0 ? `
+    <div id="hydrationEntries" style="display:none;margin-top:6px;padding:6px 8px;background:#0d1117;border-radius:6px;font-size:0.8rem">
+      ${entries.map(e => {
+        const icon = typeIcons[e.drink_type] || '🥤';
+        const time = e.created_at ? e.created_at.split(' ')[1]?.substring(0,5) : '';
+        const ePct = Math.round(e.amount_ml / (h.total_ml||1) * 100);
+        return `<div class="d-flex justify-content-between align-items-center mb-1">
+          <span>${icon} <span class="text-muted">${e.description || e.drink_type}</span> ${time ? '<small class="text-muted">'+time+'</small>' : ''}</span>
+          <span><strong>${e.amount_ml}ml</strong> <small class="text-muted">(${ePct}%)</small>
+            <span class="text-danger ms-1" style="cursor:pointer;font-size:0.7rem" onclick="deleteHydration(${e.id})">✕</span></span>
+        </div>
+        <div class="progress mb-1" style="height:3px;background:#21262d"><div class="progress-bar" style="width:${ePct}%;background:${color};opacity:0.6"></div></div>`;
+      }).join('')}
+    </div>` : '';
+  const detailToggle = entries.length > 0 ? ` <small class="text-muted" style="cursor:pointer;font-size:0.7rem" onclick="let el=document.getElementById('hydrationEntries');el.style.display=el.style.display==='none'?'block':'none'">▶ ${entries.length} Einträge</small>` : '';
+  document.getElementById('hydrationDisplay').innerHTML = `
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <span>${status} <strong style="color:${color}">${liters}L</strong> <small class="text-muted">/ ${goalL}L Ziel</small>${detailToggle}</span>
+      <span class="badge" style="background:${color};color:#000;font-size:0.75rem">${pct}%</span>
+    </div>
+    <div class="progress" style="height:10px;background:#21262d">
+      <div class="progress-bar" style="width:${pct}%;background:${color}"></div>
+    </div>
+    ${entriesHTML}`;
+}
+
+async function deleteHydration(id) {
+  await fetch('/api/hydration/' + id, {method:'DELETE'});
+  loadAll();
+}
+
+async function addQuickWater(ml) {
+  await fetch('/api/hydration', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({date: currentDate, amount_ml: ml, drink_type: 'water', description: `Wasser ${ml}ml`})});
+  loadAll();
+}
+
+function showHydrationModal() {
+  new bootstrap.Modal(document.getElementById('hydrationModal')).show();
+}
+
+async function addHydration() {
+  const amount = parseInt(document.getElementById('hAmount').value) || 250;
+  const drink_type = document.getElementById('hType').value;
+  const desc = document.getElementById('hDesc').value || `${document.getElementById('hType').selectedOptions[0].text} ${amount}ml`;
+  await fetch('/api/hydration', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({date: currentDate, amount_ml: amount, drink_type, description: desc})});
+  bootstrap.Modal.getInstance(document.getElementById('hydrationModal')).hide();
+  loadAll();
 }
 
 function renderWeek(w) {
@@ -493,6 +1043,18 @@ async function editMeal(id) {
   document.getElementById('mCarbs').value = meal.carbs_g;
   document.getElementById('mFiber').value = meal.fiber_g;
   document.getElementById('mSugar').value = meal.sugar_g;
+  document.getElementById('mSugarNat').value = meal.sugar_natural_g || '';
+  document.getElementById('mSugarAdd').value = meal.sugar_added_g || '';
+  document.getElementById('mVitC').value = meal.vitamin_c_mg || '';
+  document.getElementById('mVitD').value = meal.vitamin_d_iu || '';
+  document.getElementById('mVitK').value = meal.vitamin_k_mcg || '';
+  document.getElementById('mPotassium').value = meal.potassium_mg || '';
+  document.getElementById('mMagnesium').value = meal.magnesium_mg || '';
+  document.getElementById('mZinc').value = meal.zinc_mg || '';
+  document.getElementById('mSelenium').value = meal.selenium_mcg || '';
+  document.getElementById('mIron').value = meal.iron_mg || '';
+  document.getElementById('mCalcium').value = meal.calcium_mg || '';
+  document.getElementById('mFolate').value = meal.folate_mcg || '';
   document.getElementById('mNotes').value = meal.notes;
   // Load components
   document.getElementById('compList').innerHTML = '';
@@ -515,6 +1077,18 @@ async function saveMeal() {
     carbs_g: parseFloat(document.getElementById('mCarbs').value)||0,
     fiber_g: parseFloat(document.getElementById('mFiber').value)||0,
     sugar_g: parseFloat(document.getElementById('mSugar').value)||0,
+    sugar_natural_g: parseFloat(document.getElementById('mSugarNat').value)||0,
+    sugar_added_g: parseFloat(document.getElementById('mSugarAdd').value)||0,
+    vitamin_c_mg: parseFloat(document.getElementById('mVitC').value)||0,
+    vitamin_d_iu: parseFloat(document.getElementById('mVitD').value)||0,
+    vitamin_k_mcg: parseFloat(document.getElementById('mVitK').value)||0,
+    potassium_mg: parseFloat(document.getElementById('mPotassium').value)||0,
+    magnesium_mg: parseFloat(document.getElementById('mMagnesium').value)||0,
+    zinc_mg: parseFloat(document.getElementById('mZinc').value)||0,
+    selenium_mcg: parseFloat(document.getElementById('mSelenium').value)||0,
+    iron_mg: parseFloat(document.getElementById('mIron').value)||0,
+    calcium_mg: parseFloat(document.getElementById('mCalcium').value)||0,
+    folate_mcg: parseFloat(document.getElementById('mFolate').value)||0,
     notes: document.getElementById('mNotes').value,
     source: 'manual'
   };
@@ -804,6 +1378,92 @@ async function loadCaffeine() {
   } catch (e) {
     console.error('Caffeine load error:', e);
   }
+}
+
+// === Mikronährstoffe ===
+function renderMicronutrients(summary) {
+  const t = summary.totals || {};
+  const goals = summary.dge_goals || {};
+  const prog = summary.micro_progress || {};
+  const labels = {
+    vitamin_c_mg: ['Vitamin C', 'mg', '#f0883e'],
+    vitamin_d_iu: ['Vitamin D', 'IU', '#ffc107'],
+    vitamin_k_mcg: ['Vitamin K', 'mcg', '#bc8cff'],
+    potassium_mg: ['Kalium', 'mg', '#58a6ff'],
+    magnesium_mg: ['Magnesium', 'mg', '#3fb950'],
+    zinc_mg: ['Zink', 'mg', '#e6db74'],
+    selenium_mcg: ['Selen', 'mcg', '#ff6b9d'],
+    iron_mg: ['Eisen', 'mg', '#f85149'],
+    calcium_mg: ['Calcium', 'mg', '#79c0ff'],
+    folate_mcg: ['Folsäure', 'mcg', '#7ee787'],
+  };
+  let html = '';
+  let covered = 0, total = 0;
+  for (const [key, [name, unit, color]] of Object.entries(labels)) {
+    const val = t[key] || 0;
+    const goal = goals[key] || 1;
+    const pct = Math.min(Math.round(val / goal * 100), 150);
+    const barPct = Math.min(pct, 100);
+    total++;
+    if (pct >= 80) covered++;
+    const status = pct >= 100 ? '✅' : pct >= 50 ? '🔵' : '⚠️';
+    // Build per-meal breakdown for this micronutrient
+    let srcHTML = '';
+    if (window._allMeals) {
+      const sources = window._allMeals.filter(m => (m[key] || 0) > 0).sort((a,b) => (b[key]||0) - (a[key]||0));
+      if (sources.length) {
+        srcHTML = `<div class="micro-sources" id="msrc-${key}" style="display:none;margin-top:4px;padding:6px 8px;background:#0d1117;border-radius:6px;font-size:0.8rem">`;
+        for (const s of sources) {
+          const sv = Math.round((s[key]||0)*10)/10;
+          const spct = Math.round(sv/val*100);
+          const mtype = s.meal_type === 'supplement' ? '💊' : s.meal_type === 'breakfast' ? '🌅' : s.meal_type === 'lunch' ? '☀️' : s.meal_type === 'dinner' ? '🌙' : '🍎';
+          srcHTML += `<div class="d-flex justify-content-between mb-1"><span>${mtype} ${s.description}</span><span style="color:${color}"><strong>${sv}${unit}</strong> <small class="text-muted">(${spct}%)</small></span></div>`;
+        }
+        srcHTML += `</div>`;
+      }
+    }
+    const clickAttr = srcHTML ? `onclick="let e=document.getElementById('msrc-${key}');e.style.display=e.style.display==='none'?'block':'none'" style="cursor:pointer;font-size:0.85rem"` : `style="font-size:0.85rem"`;
+    html += `<div class="mb-2">
+      <div class="d-flex justify-content-between" ${clickAttr}>
+        <span>${status} ${name} ${srcHTML ? '<small class="text-muted">▸</small>' : ''}</span>
+        <span><strong style="color:${color}">${Math.round(val*10)/10}${unit}</strong> / ${goal}${unit} <small class="text-muted">(${pct}%)</small></span>
+      </div>
+      <div class="progress" style="height:8px;background:#21262d">
+        <div class="progress-bar" style="width:${barPct}%;background:${color}"></div>
+      </div>
+      ${srcHTML}
+    </div>`;
+  }
+  document.getElementById('microBars').innerHTML = html;
+  document.getElementById('microSummary').textContent = `${covered}/${total} Ziele ≥80%`;
+}
+
+// === Sugar Split rendering in Nährwert-Analyse ===
+function renderSugarSplit(summary) {
+  const t = summary.totals || {};
+  const total = t.sugar_g || 0;
+  const nat = t.sugar_natural_g || 0;
+  const added = t.sugar_added_g || 0;
+  const uncat = Math.max(0, total - nat - added);
+  if (total <= 0) return '';
+  const natPct = Math.round(nat / total * 100);
+  const addPct = Math.round(added / total * 100);
+  const uncPct = 100 - natPct - addPct;
+  return `<div class="mt-1 mb-2">
+    <div class="d-flex justify-content-between" style="font-size:0.82rem">
+      <span>🍬 Zucker-Split: <strong>${Math.round(total)}g</strong></span>
+      <span>
+        ${nat > 0 ? `<span style="color:#3fb950">🍎 ${Math.round(nat)}g natürlich</span> ` : ''}
+        ${added > 0 ? `<span style="color:#f85149">🧁 ${Math.round(added)}g zugesetzt</span> ` : ''}
+        ${uncat > 0 ? `<span class="text-muted">${Math.round(uncat)}g unkategorisiert</span>` : ''}
+      </span>
+    </div>
+    <div class="d-flex rounded overflow-hidden" style="height:10px;background:#21262d">
+      ${nat > 0 ? `<div style="width:${natPct}%;background:#3fb950" title="Natürlich ${Math.round(nat)}g"></div>` : ''}
+      ${added > 0 ? `<div style="width:${addPct}%;background:#f85149" title="Zugesetzt ${Math.round(added)}g"></div>` : ''}
+      ${uncat > 0 ? `<div style="width:${uncPct}%;background:#6c757d" title="Unkategorisiert ${Math.round(uncat)}g"></div>` : ''}
+    </div>
+  </div>`;
 }
 
 loadAll();
