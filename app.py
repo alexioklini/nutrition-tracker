@@ -130,6 +130,9 @@ def init_db():
         'iron_mg': 'REAL DEFAULT 0',
         'calcium_mg': 'REAL DEFAULT 0',
         'folate_mcg': 'REAL DEFAULT 0',
+        'fructose_natural_g': 'REAL DEFAULT 0',
+        'fructose_added_g': 'REAL DEFAULT 0',
+        'glucose_g': 'REAL DEFAULT 0',
     }
     for col, typedef in new_meal_cols.items():
         if col not in meal_cols:
@@ -153,6 +156,8 @@ def init_db():
     init_food_nutrients(db)
     # Migration: add caffeine_mg column to food_nutrients if missing
     migrate_caffeine(db)
+    # Migration: add isoflavones_mg column to food_nutrients
+    migrate_isoflavones(db)
     db.close()
 
 def migrate_breakfast_components(db):
@@ -252,6 +257,35 @@ def migrate_caffeine(db):
     db.commit()
 
 
+def migrate_isoflavones(db):
+    """Add isoflavones_mg column to food_nutrients and insert soy-based foods."""
+    cols = [row[1] for row in db.execute('PRAGMA table_info(food_nutrients)').fetchall()]
+    if 'isoflavones_mg' not in cols:
+        db.execute('ALTER TABLE food_nutrients ADD COLUMN isoflavones_mg REAL DEFAULT 0')
+        db.commit()
+    # Insert soy food records if they don't exist yet
+    soy_foods = [
+        # (food_name, keywords, portion_g, isoflavones_mg, notes)
+        ('Sojamilch', 'sojamilch,soja milch,soy milk,sojadrink', 200, 25, '~12.5mg/100ml Isoflavone (Genistein+Daidzein)'),
+        ('Tofu', 'tofu', 100, 27, '~27mg/100g Isoflavone'),
+        ('Tempeh', 'tempeh', 100, 43, '~43mg/100g Isoflavone (fermentiert, hohe Bioverfügbarkeit)'),
+        ('Edamame', 'edamame,sojabohne,sojabohnen', 100, 18, '~18mg/100g Isoflavone'),
+        ('Miso', 'miso,misosuppe,miso suppe', 20, 10, '~50mg/100g, Portion ~20g'),
+        ('Natto', 'natto', 50, 42, '~84mg/100g Isoflavone (fermentiert, höchste Bioverfügbarkeit)'),
+        ('Soja-Joghurt', 'sojajoghurt,soja joghurt,soja-joghurt,soy yogurt', 150, 16, '~11mg/100g Isoflavone'),
+    ]
+    for food_name, keywords, portion_g, isoflavones_mg, notes in soy_foods:
+        first_kw = keywords.split(',')[0].strip()
+        exists = db.execute("SELECT id FROM food_nutrients WHERE keywords LIKE ?", (f'%{first_kw}%',)).fetchone()
+        if not exists:
+            db.execute('''INSERT INTO food_nutrients (food_name, keywords, portion_g, isoflavones_mg, notes)
+                VALUES (?,?,?,?,?)''', (food_name, keywords, portion_g, isoflavones_mg, notes))
+        else:
+            # Update existing record with isoflavones value
+            db.execute("UPDATE food_nutrients SET isoflavones_mg = ? WHERE id = ?", (isoflavones_mg, exists[0]))
+    db.commit()
+
+
 @app.route('/')
 def dashboard():
     return send_from_directory('static', 'index.html')
@@ -291,22 +325,87 @@ def create_meal():
     d = request.json
     db = get_db()
     cur = db.execute('''INSERT INTO meals (date,meal_type,description,calories,protein_g,fat_g,carbs_g,fiber_g,sugar_g,
-        sugar_natural_g,sugar_added_g,vitamin_c_mg,vitamin_d_iu,vitamin_k_mcg,potassium_mg,magnesium_mg,zinc_mg,selenium_mcg,iron_mg,calcium_mg,folate_mcg,
-        notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        sugar_natural_g,sugar_added_g,fructose_natural_g,fructose_added_g,glucose_g,
+        vitamin_c_mg,vitamin_d_iu,vitamin_k_mcg,potassium_mg,magnesium_mg,zinc_mg,selenium_mcg,iron_mg,calcium_mg,folate_mcg,
+        notes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (d['date'], d['meal_type'], d['description'], d.get('calories',0), d.get('protein_g',0), d.get('fat_g',0), d.get('carbs_g',0), d.get('fiber_g',0), d.get('sugar_g',0),
-         d.get('sugar_natural_g',0), d.get('sugar_added_g',0), d.get('vitamin_c_mg',0), d.get('vitamin_d_iu',0), d.get('vitamin_k_mcg',0),
+         d.get('sugar_natural_g',0), d.get('sugar_added_g',0), d.get('fructose_natural_g',0), d.get('fructose_added_g',0), d.get('glucose_g',0),
+         d.get('vitamin_c_mg',0), d.get('vitamin_d_iu',0), d.get('vitamin_k_mcg',0),
          d.get('potassium_mg',0), d.get('magnesium_mg',0), d.get('zinc_mg',0), d.get('selenium_mcg',0), d.get('iron_mg',0), d.get('calcium_mg',0), d.get('folate_mcg',0),
          d.get('notes',''), d.get('source','manual')))
     db.commit()
-    row = db.execute('SELECT * FROM meals WHERE id=?', (cur.lastrowid,)).fetchone()
+    meal_id = cur.lastrowid
+    row = db.execute('SELECT * FROM meals WHERE id=?', (meal_id,)).fetchone()
+
+    # Auto-hydration: if the meal contains liquid, log it automatically
+    hydration_ml = d.get('hydration_ml', 0)
+    if not hydration_ml:
+        hydration_ml = _estimate_hydration(d.get('description', ''), d)
+    if hydration_ml and hydration_ml > 0:
+        drink_type = _guess_drink_type(d.get('description', ''))
+        db.execute('INSERT INTO hydration (date, amount_ml, drink_type, description) VALUES (?,?,?,?)',
+            (d['date'], hydration_ml, drink_type, d.get('description', '')))
+        db.commit()
+
     return jsonify(dict(row)), 201
+
+
+def _estimate_hydration(description, data):
+    """Estimate liquid content in ml from meal description."""
+    desc = description.lower()
+    # Capsules/supplements are NOT liquid — skip hydration estimation
+    non_liquid_keywords = ['kapsel', 'kapseln', 'capsule', 'tablet', 'tablette', 'supplement', 'tee-ps']
+    if any(w in desc for w in non_liquid_keywords):
+        return 0
+    # Explicit liquid items
+    drink_keywords = {
+        'kaffee': 200, 'coffee': 200, 'espresso': 30,
+        'tee': 250, 'tea': 250, 'grüner tee': 250, 'green tea': 250,
+        'saft': 250, 'juice': 250, 'granatapfel': 250,
+        'milch': 200, 'milk': 200, 'sojamilch': 200, 'hafermilch': 200, 'mandelmilch': 200,
+        'wasser': 250, 'water': 250,
+        'elektrolyt': 250, 'electrolyte': 250, 'powerbar': 250, 'isostar': 250,
+        'smoothie': 300, 'shake': 300,
+        'suppe': 250, 'soup': 250, 'brühe': 250,
+        'cola': 330, 'limo': 250, 'limonade': 250, 'sprite': 330, 'fanta': 330,
+        'bier': 330, 'beer': 330, 'wein': 150, 'wine': 150,
+        'gespritzt': 250,
+    }
+    for keyword, ml in drink_keywords.items():
+        if keyword in desc:
+            return ml
+    return 0
+
+
+def _guess_drink_type(description):
+    """Guess drink type for hydration tracking."""
+    desc = description.lower()
+    if any(w in desc for w in ['kaffee', 'coffee', 'espresso']):
+        return 'coffee'
+    if any(w in desc for w in ['tee', 'tea']):
+        return 'tea'
+    if any(w in desc for w in ['saft', 'juice', 'granatapfel']):
+        return 'juice'
+    if any(w in desc for w in ['elektrolyt', 'electrolyte', 'powerbar', 'isostar']):
+        return 'electrolyte'
+    if any(w in desc for w in ['milch', 'milk', 'soja', 'hafer']):
+        return 'other'
+    if any(w in desc for w in ['suppe', 'soup', 'brühe']):
+        return 'other'
+    if any(w in desc for w in ['wasser', 'water']):
+        return 'water'
+    if any(w in desc for w in ['smoothie', 'shake']):
+        return 'other'
+    return 'other'
+
 
 @app.route('/api/meals/<int:meal_id>', methods=['PUT'])
 def update_meal(meal_id):
     d = request.json
     db = get_db()
     fields = ['date','meal_type','description','calories','protein_g','fat_g','carbs_g','fiber_g','sugar_g',
-              'sugar_natural_g','sugar_added_g','vitamin_c_mg','vitamin_d_iu','vitamin_k_mcg','potassium_mg','magnesium_mg','zinc_mg','selenium_mcg','iron_mg','calcium_mg','folate_mcg',
+              'sugar_natural_g','sugar_added_g','fructose_natural_g','fructose_added_g','glucose_g',
+              'vitamin_c_mg','vitamin_d_iu','vitamin_k_mcg','potassium_mg','magnesium_mg','zinc_mg','selenium_mcg','iron_mg','calcium_mg','folate_mcg',
               'notes','source']
     sets = ', '.join(f'{f}=?' for f in fields if f in d)
     vals = [d[f] for f in fields if f in d]
@@ -361,8 +460,11 @@ def get_hydration(date):
 def add_hydration():
     d = request.json
     db = get_db()
+    # Accept both 'type' and 'drink_type' for backwards compatibility
+    drink_type = d.get('drink_type') or d.get('type', 'water')
+    description = d.get('description') or d.get('note', '')
     cur = db.execute('INSERT INTO hydration (date, amount_ml, drink_type, description) VALUES (?,?,?,?)',
-        (d['date'], d['amount_ml'], d.get('drink_type', 'water'), d.get('description', '')))
+        (d['date'], d['amount_ml'], drink_type, description))
     db.commit()
     row = db.execute('SELECT * FROM hydration WHERE id=?', (cur.lastrowid,)).fetchone()
     return jsonify(dict(row)), 201
@@ -487,21 +589,22 @@ def get_supplement_intake_week(date):
 
 # === Prostate Analysis ===
 
-# Supplement -> prostate nutrient mappings (by supplement ID and dose_slot)
-# Format: {supplement_id: {dose_slot: {nutrient: amount}}}
+# Supplement -> nutrient mappings (by supplement ID and dose_slot)
+# Contains BOTH analysis keys (egcg_mg, zink_mg, selen_ug) AND DGE/meals keys (zinc_mg, selenium_mcg)
+# This is the SINGLE SOURCE OF TRUTH for all supplement nutrients.
 SUPPLEMENT_NUTRIENTS = {
     8: {  # Vitals Grüner Tee-PS: 75mg EGCG per cap × 2× Bioverfügbarkeit = 150mg effektiv/Kapsel
-        'morning': {'egcg_mg': 300, 'caffeine_mg': 44},   # 2 caps × 150mg eff. EGCG
-        'evening': {'egcg_mg': 150, 'caffeine_mg': 22},   # 1 cap × 150mg eff. EGCG
+        'morning': {'egcg_mg': 300, 'caffeine_mg': 44, 'vitamin_c_mg': 1.3},   # 2 caps
+        'evening': {'egcg_mg': 150, 'caffeine_mg': 22, 'vitamin_c_mg': 0.7},   # 1 cap
     },
-    4: {  # Apremia Omega-3
+    4: {  # Apremia Omega-3 (nur Fr/Sa/So)
         'noon': {'omega3_epa_dha_mg': 300},
     },
     6: {  # Pure Encapsulations Zink 30
-        'evening': {'zink_mg': 30},
+        'evening': {'zink_mg': 30, 'zinc_mg': 30},
     },
-    7: {  # Selamin Selen
-        'evening': {'selen_ug': 100},
+    7: {  # Selamin Selen (1 Tablette Natriumselenit ~55mcg)
+        'evening': {'selen_ug': 55, 'selenium_mcg': 55},
     },
     3: {  # curcumin-Loges plus Boswellia
         'morning': {'curcumin_mg': 250, 'boswellia_mg': 150, 'vitamin_d_iu': 400},
@@ -514,14 +617,20 @@ SUPPLEMENT_NUTRIENTS = {
         'evening': {'boswellia_mg': 100, 'monacolin_k_mg': 2.95, 'ubiquinol_mg': 100},
     },
     1: {  # Vitals Männerformel Pro Prostata (2 caps/day = morning + evening, each half)
-        'morning': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50},
-        'evening': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50},
+        'morning': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50, 'zinc_mg': 1, 'magnesium_mg': 2.5, 'iron_mg': 0.25},
+        'evening': {'kuerbiskern_mg': 250, 'saegpalme_mg': 160, 'beta_sitosterol_mg': 65, 'pygeum_mg': 50, 'zinc_mg': 1, 'magnesium_mg': 2.5, 'iron_mg': 0.25},
     },
     2: {  # Legalon 140mg — Silymarin (hepatoprotective, especially vs EGCG toxicity)
         'morning': {'silymarin_mg': 140},
         'evening': {'silymarin_mg': 140},
     },
 }
+
+# DGE-compatible keys that can appear in SUPPLEMENT_NUTRIENTS
+# Used by daily_summary to aggregate supplement contributions
+DGE_KEYS = ['calories', 'protein_g', 'fat_g', 'carbs_g', 'fiber_g', 'sugar_g',
+            'vitamin_c_mg', 'vitamin_d_iu', 'vitamin_k_mcg', 'potassium_mg',
+            'magnesium_mg', 'zinc_mg', 'selenium_mcg', 'iron_mg', 'calcium_mg', 'folate_mcg']
 
 PROSTATE_SUBSTANCES = [
     {'name': 'EGCG', 'key': 'egcg_mg', 'unit': 'mg', 'min': 400, 'max': 800},
@@ -539,40 +648,100 @@ PROSTATE_SUBSTANCES = [
     {'name': 'Pygeum africanum', 'key': 'pygeum_mg', 'unit': 'mg', 'min': 100, 'max': 200},
     {'name': 'Silymarin 🛡️', 'key': 'silymarin_mg', 'unit': 'mg', 'min': 200, 'max': 400},
     {'name': 'Koffein/Teein', 'key': 'caffeine_mg', 'unit': 'mg', 'min': 300, 'max': 400, 'note': '3+ Tassen/Tag günstig für Prostata (Harvard-Studie). Max 400mg/Tag.'},
+    {'name': 'Isoflavone', 'key': 'isoflavones_mg', 'unit': 'mg', 'min': 40, 'max': 100, 'note': 'Genistein+Daidzein: hemmen PSA-Anstieg, anti-androgen. Soja-basiert.'},
 ]
 
 import re
 
-def _extract_grams(desc):
-    """Try to extract grams from meal description. Returns grams or None."""
+def _extract_grams(desc, keyword=None):
+    """Try to extract grams from meal description near a keyword. Returns grams or None."""
+    # If keyword given, try to extract quantity near it first
+    if keyword:
+        kw_lower = keyword.lower()
+        desc_lower = desc.lower()
+        kw_pos = desc_lower.find(kw_lower)
+        if kw_pos >= 0:
+            # Look in a window before the keyword (up to 30 chars)
+            start = max(0, kw_pos - 30)
+            context = desc[start:kw_pos + len(keyword) + 10]
+            # Try EL first (most specific for pastes/sauces)
+            m = re.search(r'(\d+)\s*EL\b', context, re.IGNORECASE)
+            if m:
+                return float(m.group(1)) * 20
+            m = re.search(r'(\d+)\s*g(?:ram)?(?:\b|[)\s,])', context.lower())
+            if m:
+                return float(m.group(1))
+            m = re.search(r'(\d+)\s*ml\b', context.lower())
+            if m:
+                return float(m.group(1))
+    # Fallback: search whole description (EL first, then g, then ml)
+    m = re.search(r'(\d+)\s*EL\b', desc, re.IGNORECASE)
+    if m:
+        return float(m.group(1)) * 20
     desc_lower = desc.lower()
-    # Match patterns like "150g", "~150g", "(150g)"
     m = re.search(r'(\d+)\s*g(?:ram)?(?:\b|[)\s,])', desc_lower)
     if m:
         return float(m.group(1))
-    # Match ml patterns like "~200ml", "(200ml)", "200 ml"
     m = re.search(r'(\d+)\s*ml\b', desc_lower)
     if m:
         return float(m.group(1))
-    # Match EL (Esslöffel): "3 EL" → 3 × 20g
-    m = re.search(r'(\d+)\s*EL\b', desc, re.IGNORECASE)
-    if m:
-        return float(m.group(1)) * 20  # 1 EL ≈ 20g
     return None
 
 
-@app.route('/api/prostate-analysis/<date>')
-def prostate_analysis(date):
+# Maps meals-table columns → analysis keys (bridging the two nutrient systems)
+MEALS_TO_ANALYSIS = {
+    'zinc_mg': 'zink_mg',
+    'selenium_mcg': 'selen_ug',
+    'vitamin_d_iu': 'vitamin_d_iu',
+}
+
+
+def _run_analysis(date, substances):
+    """
+    Unified analysis engine for prostate and cardio dashboards.
+
+    ONE aggregation path for ALL nutrients — no separate handling for meals vs supplements vs drinks.
+    
+    Data sources:
+      1. ALL meals table entries (food, drinks, supplements — everything)
+      2. supplement_intake (for supplement-specific nutrients NOT in meals table, e.g. egcg_mg, curcumin_mg)
+      3. food_nutrients keyword matching (for prostate-specific nutrients NOT in meals table)
+    
+    For nutrients that exist in the meals table (zinc_mg, selenium_mcg, vitamin_d_iu),
+    we use the unified meals+supplement total — no bridging, no duplication.
+    """
     db = get_db()
 
-    # 1. Gather supplement contributions
-    supp_totals = {}
-    for s in PROSTATE_SUBSTANCES:
-        supp_totals[s['key']] = 0.0
+    # === Unified totals from ALL meals (food + drinks + supplements — everything) ===
+    meals_row = db.execute('''SELECT 
+        COALESCE(SUM(zinc_mg),0) as zinc_mg,
+        COALESCE(SUM(selenium_mcg),0) as selenium_mcg,
+        COALESCE(SUM(vitamin_d_iu),0) as vitamin_d_iu,
+        COALESCE(SUM(vitamin_c_mg),0) as vitamin_c_mg,
+        COALESCE(SUM(iron_mg),0) as iron_mg,
+        COALESCE(SUM(magnesium_mg),0) as magnesium_mg,
+        COALESCE(SUM(calcium_mg),0) as calcium_mg,
+        COALESCE(SUM(potassium_mg),0) as potassium_mg
+        FROM meals WHERE date=? AND meal_type != 'supplement' ''', (date,)).fetchone()
+    meals_totals = dict(meals_row) if meals_row else {}
+    
+    # Add supplement DGE contributions (from supplement_intake)
+    supp_dge = _get_supplement_dge_totals(db, date)
+    for k, v in supp_dge.items():
+        if k in meals_totals:
+            meals_totals[k] += v
 
+    # Map analysis keys -> meals-table keys (unified source of truth)
+    ANALYSIS_TO_MEALS = {
+        'zink_mg': 'zinc_mg',
+        'selen_ug': 'selenium_mcg', 
+        'vitamin_d_iu': 'vitamin_d_iu',
+    }
+
+    # --- 1. Supplement contributions (ONLY for analysis-specific keys like egcg_mg, curcumin_mg) ---
+    supp_totals = {s['key']: 0.0 for s in substances}
     supp_sources = []
 
-    # Get taken supplement doses for this date
     intake_rows = db.execute('''
         SELECT si.supplement_id, si.dose_slot, si.taken, s.name
         FROM supplement_intake si
@@ -581,47 +750,34 @@ def prostate_analysis(date):
     ''', (date,)).fetchall()
 
     for row in intake_rows:
-        sid = row['supplement_id']
-        slot = row['dose_slot']
-        sname = row['name']
+        sid, slot, sname = row['supplement_id'], row['dose_slot'], row['name']
         if sid in SUPPLEMENT_NUTRIENTS and slot in SUPPLEMENT_NUTRIENTS[sid]:
             nutrients = SUPPLEMENT_NUTRIENTS[sid][slot]
             for nutrient_key, amount in nutrients.items():
+                # Skip keys handled by unified meals path
+                if nutrient_key in ANALYSIS_TO_MEALS or nutrient_key in ANALYSIS_TO_MEALS.values():
+                    continue
                 if nutrient_key in supp_totals:
                     supp_totals[nutrient_key] += amount
-            # Build source label
             slot_label = {'morning': 'morgens', 'noon': 'mittags', 'evening': 'abends'}.get(slot, slot)
             supp_sources.append((sname, slot_label, nutrients))
 
-    # 2. Gather food contributions from meals
-    food_totals = {}
-    for s in PROSTATE_SUBSTANCES:
-        food_totals[s['key']] = 0.0
+    # --- 2. Food keyword matching (ONLY for analysis-specific keys) ---
+    food_totals = {s['key']: 0.0 for s in substances}
 
-    food_sources = []
-
-    # Get all food_nutrients entries
     food_entries = db.execute('SELECT * FROM food_nutrients').fetchall()
-
-    # Get all meals for this date (including components)
     meals = db.execute('SELECT * FROM meals WHERE date=?', (date,)).fetchall()
     components = db.execute('''
         SELECT mc.* FROM meal_components mc
-        JOIN meals m ON m.id = mc.meal_id
-        WHERE m.date = ?
+        JOIN meals m ON m.id = mc.meal_id WHERE m.date = ?
     ''', (date,)).fetchall()
 
-    # Collect all descriptions to match against
-    all_descs = [(m['description'], None) for m in meals]
+    all_descs = [(m['description'], None) for m in meals if m['meal_type'] != 'supplement']
     all_descs += [(c['description'], None) for c in components]
-    # Also check meal notes
     for m in meals:
-        if m['notes']:
+        if m['notes'] and m['meal_type'] != 'supplement':
             all_descs.append((m['notes'], None))
 
-    # Match descriptions against foods, allowing MULTIPLE foods per description
-    # (e.g. "Poke Bowl mit Lachs, Edamame" should match both Lachs AND Edamame)
-    # But avoid the same food matching the same description twice.
     candidates = []
     for food in food_entries:
         keywords = [kw.strip().lower() for kw in food['keywords'].split(',')]
@@ -629,73 +785,97 @@ def prostate_analysis(date):
             desc_lower = desc.lower()
             for kw in keywords:
                 if kw in desc_lower:
-                    candidates.append((i, food, len(kw)))
+                    candidates.append((i, food, len(kw), kw))
                     break
-    # Sort by keyword length descending (most specific match wins)
     candidates.sort(key=lambda x: -x[2])
 
-    matched_pairs = set()  # (desc_index, food_name) to avoid same food matching same desc twice
-    for i, food, _kw_len in candidates:
+    matched_pairs = set()
+    matched_desc_nutrients = set()
+    for i, food, _kw_len, matched_kw in candidates:
         pair_key = (i, food['food_name'])
         if pair_key in matched_pairs:
             continue
+        food_nutrient_keys = set()
+        for s in substances:
+            key = s['key']
+            if key in ANALYSIS_TO_MEALS:
+                continue  # handled by unified path
+            val = food[key] if key in food.keys() else 0
+            if val > 0:
+                food_nutrient_keys.add(key)
+        if food_nutrient_keys and all((i, nk) in matched_desc_nutrients for nk in food_nutrient_keys):
+            continue
+        for nk in food_nutrient_keys:
+            matched_desc_nutrients.add((i, nk))
         matched_pairs.add(pair_key)
-        desc = all_descs[i][0]
 
-        # Extract portion
-        grams = _extract_grams(desc)
+        desc = all_descs[i][0]
+        grams = _extract_grams(desc, keyword=matched_kw)
         if grams is None:
             grams = food['portion_g']
-
         scale = grams / food['portion_g']
 
-        # Add nutrients
-        source_parts = []
-        for s in PROSTATE_SUBSTANCES:
+        for s in substances:
             key = s['key']
+            if key in ANALYSIS_TO_MEALS:
+                continue
             val = (food[key] if key in food.keys() else 0) * scale
             if val > 0:
                 food_totals[key] += val
-                source_parts.append(f"{round(val, 1)}{s['unit']} {s['name']}")
 
-        if source_parts:
-            food_sources.append(f"{desc.strip()} ({food['food_name']})")
-
-    # 3. Build response
-    substances = []
-    for s in PROSTATE_SUBSTANCES:
+    # --- 3. Build response (unified) ---
+    result_substances = []
+    for s in substances:
         key = s['key']
-        from_supp = round(supp_totals.get(key, 0), 1)
-        from_food = round(food_totals.get(key, 0), 1)
-        total = round(from_supp + from_food, 1)
+        
+        # For keys that map to meals-table columns, use the unified total
+        if key in ANALYSIS_TO_MEALS:
+            meals_key = ANALYSIS_TO_MEALS[key]
+            total = round(meals_totals.get(meals_key, 0), 1)
+            from_supp = round(supp_dge.get(meals_key, 0), 1)
+            from_food = round(total - from_supp, 1)
+        else:
+            from_supp = round(supp_totals.get(key, 0), 1)
+            from_food = round(food_totals.get(key, 0), 1)
+            total = round(from_supp + from_food, 1)
 
         # Build sources list
         sources = []
-        # Supplement sources for this nutrient
         for sname, slot_label, nutrients in supp_sources:
+            # Check both analysis key and mapped meals key
             if key in nutrients:
                 sources.append(f"{sname} ({slot_label})")
-        # Food sources for this nutrient (allow multiple foods per desc)
+            elif key in ANALYSIS_TO_MEALS:
+                meals_key = ANALYSIS_TO_MEALS[key]
+                if meals_key in nutrients:
+                    sources.append(f"{sname} ({slot_label})")
+
+        # Food sources
         src_matched_pairs = set()
-        for ci, food, _kw_len in candidates:
+        src_matched_desc_nutrients = set()
+        for ci, food, _kw_len, src_matched_kw in candidates:
             pair_key = (ci, food['food_name'])
             if pair_key in src_matched_pairs:
                 continue
-            src_matched_pairs.add(pair_key)
-            desc = all_descs[ci][0]
+            if (ci, key) in src_matched_desc_nutrients:
+                continue
             food_val = food[key] if key in food.keys() else 0
             if food_val > 0:
-                grams = _extract_grams(desc)
+                src_matched_desc_nutrients.add((ci, key))
+                src_matched_pairs.add(pair_key)
+                desc = all_descs[ci][0]
+                grams = _extract_grams(desc, keyword=src_matched_kw)
                 if grams is None:
                     grams = food['portion_g']
                 scaled = food_val * (grams / food['portion_g'])
                 if scaled > 0:
                     sources.append(f"{desc.strip()} (~{round(scaled, 1)}{s['unit']})")
+            else:
+                src_matched_pairs.add(pair_key)
 
-        # Determine status and severity (0.0 = barely outside, 1.0 = far outside)
+        # Status + severity
         if total <= 0:
-            status = 'none'
-            severity = 0
+            status, severity = 'none', 0
         elif total < s['min']:
             status = 'low'
             severity = min(1.0, (s['min'] - total) / s['min']) if s['min'] > 0 else 0
@@ -703,24 +883,25 @@ def prostate_analysis(date):
             status = 'high'
             severity = min(1.0, (total - s['max']) / s['max']) if s['max'] > 0 else 0
         else:
-            status = 'optimal'
-            severity = 0
+            status, severity = 'optimal', 0
 
-        substances.append({
-            'name': s['name'],
-            'key': key,
-            'unit': s['unit'],
-            'optimal_min': s['min'],
-            'optimal_max': s['max'],
-            'from_supplements': from_supp,
-            'from_food': from_food,
-            'total': total,
-            'sources': sources,
-            'status': status,
-            'severity': round(severity, 3),
-        })
+        entry = {
+            'name': s['name'], 'key': key, 'unit': s['unit'],
+            'optimal_min': s['min'], 'optimal_max': s['max'],
+            'from_supplements': from_supp, 'from_food': from_food,
+            'total': total, 'sources': sources,
+            'status': status, 'severity': round(severity, 3),
+        }
+        if s.get('note'):
+            entry['note'] = s['note']
+        result_substances.append(entry)
 
-    return jsonify({'date': date, 'substances': substances})
+    return {'date': date, 'substances': result_substances}
+
+
+@app.route('/api/prostate-analysis/<date>')
+def prostate_analysis(date):
+    return jsonify(_run_analysis(date, PROSTATE_SUBSTANCES))
 
 
 # === Cardio Analysis ===
@@ -735,152 +916,7 @@ CARDIO_SUBSTANCES = [
 
 @app.route('/api/cardio-analysis/<date>')
 def cardio_analysis(date):
-    db = get_db()
-
-    # 1. Gather supplement contributions
-    supp_totals = {}
-    for s in CARDIO_SUBSTANCES:
-        supp_totals[s['key']] = 0.0
-
-    supp_sources = []
-
-    # Get taken supplement doses for this date
-    intake_rows = db.execute('''
-        SELECT si.supplement_id, si.dose_slot, si.taken, s.name
-        FROM supplement_intake si
-        JOIN supplements s ON s.id = si.supplement_id
-        WHERE si.date = ? AND si.taken = 1
-    ''', (date,)).fetchall()
-
-    for row in intake_rows:
-        sid = row['supplement_id']
-        slot = row['dose_slot']
-        sname = row['name']
-        if sid in SUPPLEMENT_NUTRIENTS and slot in SUPPLEMENT_NUTRIENTS[sid]:
-            nutrients = SUPPLEMENT_NUTRIENTS[sid][slot]
-            for nutrient_key, amount in nutrients.items():
-                if nutrient_key in supp_totals:
-                    supp_totals[nutrient_key] += amount
-            slot_label = {'morning': 'morgens', 'noon': 'mittags', 'evening': 'abends'}.get(slot, slot)
-            supp_sources.append((sname, slot_label, nutrients))
-
-    # 2. Gather food contributions from meals
-    food_totals = {}
-    for s in CARDIO_SUBSTANCES:
-        food_totals[s['key']] = 0.0
-
-    food_sources = []
-
-    # Get all food_nutrients entries
-    food_entries = db.execute('SELECT * FROM food_nutrients').fetchall()
-
-    # Get all meals for this date (including components)
-    meals = db.execute('SELECT * FROM meals WHERE date=?', (date,)).fetchall()
-    components = db.execute('''
-        SELECT mc.* FROM meal_components mc
-        JOIN meals m ON m.id = mc.meal_id
-        WHERE m.date = ?
-    ''', (date,)).fetchall()
-
-    all_descs = [(m['description'], None) for m in meals]
-    all_descs += [(c['description'], None) for c in components]
-    for m in meals:
-        if m['notes']:
-            all_descs.append((m['notes'], None))
-
-    candidates = []
-    for food in food_entries:
-        keywords = [kw.strip().lower() for kw in food['keywords'].split(',')]
-        for i, (desc, _) in enumerate(all_descs):
-            desc_lower = desc.lower()
-            for kw in keywords:
-                if kw in desc_lower:
-                    candidates.append((i, food, len(kw)))
-                    break
-    candidates.sort(key=lambda x: -x[2])
-
-    matched_pairs = set()  # (desc_index, food_name) to allow multiple foods per desc
-    for i, food, _kw_len in candidates:
-        pair_key = (i, food['food_name'])
-        if pair_key in matched_pairs:
-            continue
-        matched_pairs.add(pair_key)
-        desc = all_descs[i][0]
-
-        grams = _extract_grams(desc)
-        if grams is None:
-            grams = food['portion_g']
-
-        scale = grams / food['portion_g']
-
-        source_parts = []
-        for s in CARDIO_SUBSTANCES:
-            key = s['key']
-            val = (food[key] if key in food.keys() else 0) * scale
-            if val > 0:
-                food_totals[key] += val
-                source_parts.append(f"{round(val, 1)}{s['unit']} {s['name']}")
-
-        if source_parts:
-            food_sources.append(f"{desc.strip()} ({food['food_name']})")
-
-    # 3. Build response
-    substances = []
-    for s in CARDIO_SUBSTANCES:
-        key = s['key']
-        from_supp = round(supp_totals.get(key, 0), 1)
-        from_food = round(food_totals.get(key, 0), 1)
-        total = round(from_supp + from_food, 1)
-
-        sources = []
-        for sname, slot_label, nutrients in supp_sources:
-            if key in nutrients:
-                sources.append(f"{sname} ({slot_label})")
-        src_matched_pairs = set()
-        for ci, food, _kw_len in candidates:
-            pair_key = (ci, food['food_name'])
-            if pair_key in src_matched_pairs:
-                continue
-            src_matched_pairs.add(pair_key)
-            desc = all_descs[ci][0]
-            food_val = food[key] if key in food.keys() else 0
-            if food_val > 0:
-                grams = _extract_grams(desc)
-                if grams is None:
-                    grams = food['portion_g']
-                scaled = food_val * (grams / food['portion_g'])
-                if scaled > 0:
-                    sources.append(f"{desc.strip()} (~{round(scaled, 1)}{s['unit']})")
-
-        if total <= 0:
-            status = 'none'
-            severity = 0
-        elif total < s['min']:
-            status = 'low'
-            severity = min(1.0, (s['min'] - total) / s['min']) if s['min'] > 0 else 0
-        elif total > s['max']:
-            status = 'high'
-            severity = min(1.0, (total - s['max']) / s['max']) if s['max'] > 0 else 0
-        else:
-            status = 'optimal'
-            severity = 0
-
-        substances.append({
-            'name': s['name'],
-            'key': key,
-            'unit': s['unit'],
-            'optimal_min': s['min'],
-            'optimal_max': s['max'],
-            'from_supplements': from_supp,
-            'from_food': from_food,
-            'total': total,
-            'sources': sources,
-            'status': status,
-            'severity': round(severity, 3),
-            'note': s.get('note', ''),
-        })
-
-    return jsonify({'date': date, 'substances': substances})
+    return jsonify(_run_analysis(date, CARDIO_SUBSTANCES))
 
 
 BIRTH_YEAR = 1971
@@ -964,18 +1000,47 @@ def calc_workout_calories(active_energy_kj, avg_hr, duration_min):
         'avg_hr': avg_hr,
     }
 
+def _get_supplement_dge_totals(db, date):
+    """Aggregate DGE-compatible nutrients from supplement_intake (single source of truth).
+    Returns dict of DGE_KEY → total value for taken supplements on this date."""
+    ensure_supplement_records(db, date)
+    totals = {k: 0.0 for k in DGE_KEYS}
+    intake_rows = db.execute('''
+        SELECT si.supplement_id, si.dose_slot, si.taken
+        FROM supplement_intake si
+        WHERE si.date = ? AND si.taken = 1
+    ''', (date,)).fetchall()
+    for row in intake_rows:
+        sid, slot = row['supplement_id'], row['dose_slot']
+        if sid in SUPPLEMENT_NUTRIENTS and slot in SUPPLEMENT_NUTRIENTS[sid]:
+            for key, amount in SUPPLEMENT_NUTRIENTS[sid][slot].items():
+                if key in totals:
+                    totals[key] += amount
+    return totals
+
+
 @app.route('/api/summary/<date>')
 def daily_summary(date):
     db = get_db()
+    # Sum FOOD meals only (exclude supplements — they come from supplement_intake)
     row = db.execute('''SELECT COALESCE(SUM(calories),0) as calories, COALESCE(SUM(protein_g),0) as protein_g,
         COALESCE(SUM(fat_g),0) as fat_g, COALESCE(SUM(carbs_g),0) as carbs_g, COALESCE(SUM(fiber_g),0) as fiber_g,
         COALESCE(SUM(sugar_g),0) as sugar_g, COALESCE(SUM(sugar_natural_g),0) as sugar_natural_g, COALESCE(SUM(sugar_added_g),0) as sugar_added_g,
+        COALESCE(SUM(fructose_natural_g),0) as fructose_natural_g, COALESCE(SUM(fructose_added_g),0) as fructose_added_g, COALESCE(SUM(glucose_g),0) as glucose_g,
         COALESCE(SUM(vitamin_c_mg),0) as vitamin_c_mg, COALESCE(SUM(vitamin_d_iu),0) as vitamin_d_iu, COALESCE(SUM(vitamin_k_mcg),0) as vitamin_k_mcg,
         COALESCE(SUM(potassium_mg),0) as potassium_mg, COALESCE(SUM(magnesium_mg),0) as magnesium_mg, COALESCE(SUM(zinc_mg),0) as zinc_mg,
         COALESCE(SUM(selenium_mcg),0) as selenium_mcg, COALESCE(SUM(iron_mg),0) as iron_mg, COALESCE(SUM(calcium_mg),0) as calcium_mg,
         COALESCE(SUM(folate_mcg),0) as folate_mcg,
-        COUNT(*) as meal_count FROM meals WHERE date=?''', (date,)).fetchone()
+        COUNT(*) as meal_count FROM meals WHERE date=? AND meal_type != 'supplement' ''', (date,)).fetchone()
     totals = dict(row)
+    # Add supplement count to meal_count for display
+    supp_count = db.execute("SELECT COUNT(*) FROM meals WHERE date=? AND meal_type='supplement'", (date,)).fetchone()[0]
+    totals['meal_count'] += supp_count
+    # Add supplement nutrients from supplement_intake (single source of truth)
+    supp_dge = _get_supplement_dge_totals(db, date)
+    for key in DGE_KEYS:
+        if key in totals:
+            totals[key] += supp_dge.get(key, 0)
 
     # Workout data
     workout = get_workout_data(date)
@@ -1010,19 +1075,94 @@ def daily_summary(date):
 
     # Micronutrient goals — therapeutic targets (prostate/cardio) where higher than DGE
     # Format: value is optimal_min from prostate/cardio analysis, or DGE if no therapeutic target
+    # All goals use therapeutic/prostata targets where applicable
     dge_goals = {
         'vitamin_c_mg': 95,      # DGE (no therapeutic target)
-        'vitamin_d_iu': 2000,    # Prostata optimal: 2000-4000 IU (DGE: 800)
+        'vitamin_d_iu': 2000,    # Prostata: 2000-4000 IU
         'vitamin_k_mcg': 70,     # DGE (no therapeutic target)
         'potassium_mg': 4000,    # DGE
         'magnesium_mg': 350,     # DGE
-        'zinc_mg': 15,           # Prostata optimal: 15-30 mg (DGE: 10)
-        'selenium_mcg': 100,     # Prostata optimal: 100-200 mcg (DGE: 70)
+        'zinc_mg': 15,           # Prostata: 15-30 mg
+        'selenium_mcg': 100,     # Prostata: 100-200 mcg
         'iron_mg': 10,           # DGE
         'calcium_mg': 1000,      # DGE
         'folate_mcg': 300,       # DGE
     }
+    # Max values — prostata-derived where relevant, otherwise safe UL
+    dge_max = {
+        'vitamin_c_mg': 2000,
+        'vitamin_d_iu': 4000,    # Prostata max
+        'vitamin_k_mcg': None,   # no UL
+        'potassium_mg': None,    # no UL from food
+        'magnesium_mg': 800,
+        'zinc_mg': 30,           # Prostata max
+        'selenium_mcg': 200,     # Prostata max
+        'iron_mg': 45,
+        'calcium_mg': 2500,
+        'folate_mcg': 1000,
+    }
     micro_progress = {k: round(totals.get(k, 0) / v * 100, 1) for k, v in dge_goals.items()}
+
+    # --- Sugar analysis ---
+    def _sugar_rating(val, ok_max, warn_max):
+        if val <= ok_max: return 'ok'
+        if val <= warn_max: return 'moderate'
+        return 'bad'
+
+    fruct_nat = totals.get('fructose_natural_g', 0)
+    fruct_add = totals.get('fructose_added_g', 0)
+    gluc = totals.get('glucose_g', 0)
+    liver_load = fruct_nat + fruct_add  # total fructose hitting liver
+
+    sugar_analysis = {
+        'fructose_natural_g': round(fruct_nat, 1),
+        'fructose_added_g': round(fruct_add, 1),
+        'glucose_g': round(gluc, 1),
+        'liver_load_g': round(liver_load, 1),
+        'added_sugar_g': round(totals.get('sugar_added_g', 0), 1),
+        'ratings': {
+            'fructose_natural': _sugar_rating(fruct_nat, 25, 50),
+            'fructose_added': _sugar_rating(fruct_add, 5, 15),
+            'glucose': _sugar_rating(gluc, 25, 50),
+            'added_sugar': _sugar_rating(totals.get('sugar_added_g', 0), 10, 25),
+            'liver_load': _sugar_rating(liver_load, 25, 50),
+        },
+        'thresholds': {
+            'fructose_natural': {'ok': 25, 'warn': 50},
+            'fructose_added': {'ok': 5, 'warn': 15},
+            'glucose': {'ok': 25, 'warn': 50},
+            'added_sugar': {'ok': 10, 'warn': 25},
+            'liver_load': {'ok': 25, 'warn': 50},
+        },
+    }
+
+    # Per-meal sugar ratings
+    meal_sugar_rows = db.execute('''SELECT id, description, sugar_g, fructose_natural_g, fructose_added_g, glucose_g
+        FROM meals WHERE date=? AND meal_type != 'supplement' ORDER BY id''', (date,)).fetchall()
+    per_meal_sugar = []
+    for mr in meal_sugar_rows:
+        mr = dict(mr)
+        total_sugar = mr.get('sugar_g') or 0
+        fn = mr.get('fructose_natural_g') or 0
+        fa = mr.get('fructose_added_g') or 0
+        gl = mr.get('glucose_g') or 0
+        # Per-portion ratings
+        ratings = [
+            _sugar_rating(fn, 15, 25),           # Fruktose natürlich pro Portion
+            _sugar_rating(fa, 3, 10),             # Fruktose Industrie pro Portion (≤3g ok)
+            _sugar_rating(gl, 15, 25),            # Glucose pro Portion
+            _sugar_rating(total_sugar, 15, 25),   # Gesamt-Zucker pro Portion
+        ]
+        worst = 'bad' if 'bad' in ratings else ('moderate' if 'moderate' in ratings else 'ok')
+        per_meal_sugar.append({
+            'id': mr['id'], 'description': mr['description'],
+            'sugar_g': round(total_sugar, 1),
+            'fructose_natural_g': round(fn, 1),
+            'fructose_added_g': round(fa, 1),
+            'glucose_g': round(gl, 1),
+            'rating': worst,
+        })
+    sugar_analysis['per_meal'] = per_meal_sugar
 
     return jsonify({
         'date': date,
@@ -1035,7 +1175,9 @@ def daily_summary(date):
         'meal_breakdown': meal_breakdown,
         'hydration': {'total_ml': hydration_total, 'goal_ml': 2500, 'entries': hydration_entries},
         'dge_goals': dge_goals,
+        'dge_max': {k: v for k, v in dge_max.items() if v is not None},
         'micro_progress': micro_progress,
+        'sugar_analysis': sugar_analysis,
     })
 
 @app.route('/api/summary/week/<date>')

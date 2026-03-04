@@ -550,35 +550,10 @@ function renderRecommendations(summary) {
   const hydTotal = hydration.total_ml || 0;
   const hydLeft = Math.max(0, hydGoal - hydTotal);
 
-  // Expected daily supplement contribution (even if not yet logged)
-  // These are taken with meals throughout the day
-  const suppExpected = {
-    zinc_mg: 30,        // Zink 30 Picolinat
-    selenium_mcg: 90,   // Selamin
-    vitamin_d_iu: 800,  // Curcumin-Loges
-    // Omega-3 only Fri-Sun
-  };
-  // Note: goals from API already use therapeutic targets (prostate/cardio)
-  // zinc_mg: 15 (prostata), selenium_mcg: 100 (prostata), vitamin_d_iu: 2000 (prostata)
-  // Check what supplements are already logged today
-  const suppLogged = (window._allMeals || []).filter(m => m.meal_type === 'supplement');
-  const suppAlreadyLogged = {};
-  for (const m of suppLogged) {
-    for (const k of Object.keys(suppExpected)) {
-      suppAlreadyLogged[k] = (suppAlreadyLogged[k] || 0) + (m[k] || 0);
-    }
-  }
-  // Calculate what supplements will still add (not yet taken)
-  const suppPending = {};
-  for (const [k, v] of Object.entries(suppExpected)) {
-    suppPending[k] = Math.max(0, v - (suppAlreadyLogged[k] || 0));
-  }
-  // Effective totals = current + pending supplements
+  // API totals already include supplement contributions (unified path).
+  // No need to add pending supplements — backend handles it via supplement_intake.
+  const suppPending = {};  // kept empty for compatibility
   const effective = {...t};
-  for (const [k, v] of Object.entries(suppPending)) {
-    effective[k] = (effective[k] || 0) + v;
-  }
-  // Effective progress
   const effProg = {};
   for (const k of Object.keys(goals)) {
     effProg[k] = Math.round((effective[k] || 0) / (goals[k] || 1) * 100);
@@ -725,7 +700,13 @@ function renderRecommendations(summary) {
       allRecs.push({pct: pctEff, cat:'💊', name, tip: `${Math.round(pctNow)}% → ~${Math.round(pctEff)}% mit Supplements — keine Extra-Nahrung nötig`});
     }
 
-    if (pctEff > 300) {
+    const maxGoalsRec = summary.dge_max || {};
+    const maxValRec = maxGoalsRec[key] || null;
+    const valEff2 = effective[key] || 0;
+    if (maxValRec && valEff2 > maxValRec) {
+      excesses++;
+      avoidHTML += `<div class="mb-1"><span style="color:#f85149">🔴 ${name}: ${Math.round(valEff2)}${unit} — über Max (${maxValRec}${unit}), nicht weiter erhöhen</span></div>`;
+    } else if (!maxValRec && pctEff > 300) {
       excesses++;
       avoidHTML += `<div class="mb-1"><span style="color:#f85149">🔴 ${name}: ${Math.round(pctEff)}%</span> — stark überschritten, keine weiteren ${name}-reichen Lebensmittel nötig</div>`;
     }
@@ -770,9 +751,13 @@ function renderRecommendations(summary) {
     'omega3_epa_dha_mg': [{name:'Lachs (100g, ~2000mg)',emoji:'🐟'},{name:'Hering (100g, ~1700mg)',emoji:'🐟'}],
     'punicalagin_mg': [{name:'Granatapfelsaft (250ml)',emoji:'🍷'}],
     'caffeine_mg': [{name:'Grüner Tee (Tasse)',emoji:'🍵'},{name:'Kaffee (Tasse)',emoji:'☕'}],
+    'isoflavones_mg': [{name:'Tempeh (100g, ~43mg)',emoji:'🫘'},{name:'Tofu (100g, ~27mg)',emoji:'🧈'},{name:'Sojamilch (200ml, ~25mg)',emoji:'🥛'},{name:'Edamame (100g, ~18mg)',emoji:'🫛'}],
   };
 
+  // Skip prostate substances that are already covered by DGE micronutrients (unified path)
+  const dgeHandledAnalysisKeys = new Set(['zink_mg', 'selen_ug', 'vitamin_d_iu']);
   for (const sub of (prostate.substances || [])) {
+    if (dgeHandledAnalysisKeys.has(sub.key)) continue; // already shown in micronutrient section
     const pct = Math.round(sub.total / sub.optimal_min * 100);
     if (sub.status === 'low' || pct < 80) {
       deficits++;
@@ -1384,6 +1369,7 @@ async function loadCaffeine() {
 function renderMicronutrients(summary) {
   const t = summary.totals || {};
   const goals = summary.dge_goals || {};
+  const maxGoals = summary.dge_max || {};
   const prog = summary.micro_progress || {};
   const labels = {
     vitamin_c_mg: ['Vitamin C', 'mg', '#f0883e'],
@@ -1402,11 +1388,23 @@ function renderMicronutrients(summary) {
   for (const [key, [name, unit, color]] of Object.entries(labels)) {
     const val = t[key] || 0;
     const goal = goals[key] || 1;
-    const pct = Math.min(Math.round(val / goal * 100), 150);
-    const barPct = Math.min(pct, 100);
+    const maxVal = maxGoals[key] || null;
+    // Progress: below min → pct of min, above min with max → show as optimal or over-max
+    let pct, displayPct;
+    if (maxVal && val >= goal) {
+      // In or above optimal range: show 100% if within range, >100% if over max
+      pct = Math.round(val / goal * 100);  // keep raw for sorting
+      displayPct = val <= maxVal ? 100 : Math.min(Math.round(val / maxVal * 100), 150);
+    } else {
+      pct = Math.min(Math.round(val / goal * 100), 150);
+      displayPct = pct;
+    }
+    const barPct = Math.min(displayPct, 100);
+    const overMax = maxVal && val > maxVal;
     total++;
-    if (pct >= 80) covered++;
-    const status = pct >= 100 ? '✅' : pct >= 50 ? '🔵' : '⚠️';
+    if (val >= goal && !overMax) covered++;
+    else if (val >= goal * 0.8 && !maxVal) covered++;
+    const status = overMax ? '🔴' : val >= goal ? '✅' : pct >= 50 ? '🔵' : '⚠️';
     // Build per-meal breakdown for this micronutrient
     let srcHTML = '';
     if (window._allMeals) {
@@ -1426,7 +1424,7 @@ function renderMicronutrients(summary) {
     html += `<div class="mb-2">
       <div class="d-flex justify-content-between" ${clickAttr}>
         <span>${status} ${name} ${srcHTML ? '<small class="text-muted">▸</small>' : ''}</span>
-        <span><strong style="color:${color}">${Math.round(val*10)/10}${unit}</strong> / ${goal}${unit} <small class="text-muted">(${pct}%)</small></span>
+        <span><strong style="color:${overMax ? '#f85149' : color}">${Math.round(val*10)/10}${unit}</strong> / ${maxVal ? goal+'–'+maxVal : goal}${unit} <small class="text-muted">${overMax ? '⚠️ über Max!' : val >= goal && maxVal ? '✓ optimal' : '('+displayPct+'%)'}</small></span>
       </div>
       <div class="progress" style="height:8px;background:#21262d">
         <div class="progress-bar" style="width:${barPct}%;background:${color}"></div>
@@ -1441,6 +1439,7 @@ function renderMicronutrients(summary) {
 // === Sugar Split rendering in Nährwert-Analyse ===
 function renderSugarSplit(summary) {
   const t = summary.totals || {};
+  const sa = summary.sugar_analysis || {};
   const total = t.sugar_g || 0;
   const nat = t.sugar_natural_g || 0;
   const added = t.sugar_added_g || 0;
@@ -1449,6 +1448,49 @@ function renderSugarSplit(summary) {
   const natPct = Math.round(nat / total * 100);
   const addPct = Math.round(added / total * 100);
   const uncPct = 100 - natPct - addPct;
+
+  const rIcon = r => r === 'ok' ? '🟢' : r === 'moderate' ? '🟡' : '🔴';
+  const ratings = sa.ratings || {};
+
+  // Fructose/Glucose detail breakdown
+  const fructNat = sa.fructose_natural_g || 0;
+  const fructAdd = sa.fructose_added_g || 0;
+  const gluc = sa.glucose_g || 0;
+  const liverLoad = sa.liver_load_g || 0;
+  const hasDetail = fructNat > 0 || fructAdd > 0 || gluc > 0;
+
+  let detailHTML = '';
+  if (hasDetail) {
+    detailHTML = `<div class="mt-1" style="font-size:0.78rem; background:#161b22; border-radius:6px; padding:8px 10px;">
+      <div class="mb-1"><strong>🔬 Zucker-Detail</strong></div>
+      <table style="width:100%; font-size:0.78rem;">
+        <tr><td>🍎 Fruktose (Obst)</td><td style="text-align:right">${Math.round(fructNat)}g</td><td style="text-align:right;width:30px">${rIcon(ratings.fructose_natural||'ok')}</td></tr>
+        <tr><td>🏭 Fruktose (Industrie)</td><td style="text-align:right">${Math.round(fructAdd)}g</td><td style="text-align:right">${rIcon(ratings.fructose_added||'ok')}</td></tr>
+        <tr><td>🔵 Glucose</td><td style="text-align:right">${Math.round(gluc)}g</td><td style="text-align:right">${rIcon(ratings.glucose||'ok')}</td></tr>
+        <tr style="border-top:1px solid #30363d"><td><strong>🫀 Leber-Load</strong> (Fruktose ges.)</td><td style="text-align:right"><strong>${Math.round(liverLoad)}g</strong></td><td style="text-align:right">${rIcon(ratings.liver_load||'ok')}</td></tr>
+      </table>
+      <div class="mt-1" style="font-size:0.72rem; color:#8b949e;">
+        Leber-Load: 🟢 ≤25g · 🟡 25–50g · 🔴 >50g | Added Sugar: 🟢 ≤10g · 🟡 10–25g · 🔴 >25g (WHO)
+      </div>
+    </div>`;
+  }
+
+  // Per-meal sugar ratings
+  const perMeal = (sa.per_meal || []).filter(m => m.sugar_g > 0);
+  let perMealHTML = '';
+  if (perMeal.length > 0) {
+    const rows = perMeal.map(m => {
+      const desc = m.description.length > 35 ? m.description.substring(0,32)+'...' : m.description;
+      return `<tr><td>${rIcon(m.rating)}</td><td>${desc}</td><td style="text-align:right">${Math.round(m.sugar_g)}g</td></tr>`;
+    }).join('');
+    perMealHTML = `<div class="mt-1" style="font-size:0.75rem;">
+      <details><summary style="cursor:pointer;color:#8b949e">📋 Zucker pro Mahlzeit</summary>
+      <table style="width:100%; font-size:0.75rem; margin-top:4px;">${rows}</table>
+      <div style="font-size:0.7rem; color:#8b949e; margin-top:2px;">Portion: 🟢 ≤15g · 🟡 15–25g · 🔴 >25g (Zucker gesamt & Fruktose/Glucose einzeln)</div>
+      </details>
+    </div>`;
+  }
+
   return `<div class="mt-1 mb-2">
     <div class="d-flex justify-content-between" style="font-size:0.82rem">
       <span>🍬 Zucker-Split: <strong>${Math.round(total)}g</strong></span>
@@ -1463,6 +1505,8 @@ function renderSugarSplit(summary) {
       ${added > 0 ? `<div style="width:${addPct}%;background:#f85149" title="Zugesetzt ${Math.round(added)}g"></div>` : ''}
       ${uncat > 0 ? `<div style="width:${uncPct}%;background:#6c757d" title="Unkategorisiert ${Math.round(uncat)}g"></div>` : ''}
     </div>
+    ${detailHTML}
+    ${perMealHTML}
   </div>`;
 }
 
